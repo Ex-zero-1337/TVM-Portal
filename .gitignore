@@ -1,0 +1,10 @@
+node_modules/
+release/
+dist/
+build/
+*.exe
+*.app
+*.dmg
+*.zip
+*.7z
+*.tar.gz

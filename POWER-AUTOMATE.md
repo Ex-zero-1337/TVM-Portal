@@ -7,7 +7,7 @@ no manual import).
 
 ## How it works
 
-<img width="1122" height="1402" alt="powerautomate-flowchat" src="https://github.com/user-attachments/assets/d44aea97-f049-4937-a768-a1f71a344f28" />
+<img width="561" height="701" alt="powerautomate-flowchat" src="https://github.com/user-attachments/assets/d44aea97-f049-4937-a768-a1f71a344f28" />
 
 
 The app watches `<data folder>/inbox/` with a filesystem watcher **plus a

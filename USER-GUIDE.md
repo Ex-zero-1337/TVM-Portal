@@ -2,10 +2,8 @@
 
 ## The big picture
 
-```
- Request  ──▶  Assessment  ──▶  Findings  ──▶  Remediation/SLA  ──▶  Retest  ──▶  Report
- (intake)      (the test)       (results)       (tracking)          (verify)      (deliver)
-```
+<img width="829.5" height="474" alt="VAPT Flowchart" src="https://github.com/user-attachments/assets/e9e590ca-f2ad-46fe-8c76-70dca708631a" />
+
 
 Everything hangs off an **Application** (the system being tested) and its
 **Hosts** (the IPs/servers behind it). Register those first; the rest of the

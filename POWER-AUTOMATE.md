@@ -7,21 +7,8 @@ no manual import).
 
 ## How it works
 
-```
-Microsoft Form / Email / Teams
-        │
-        ▼
-Power Automate flow ──▶ Create file in SharePoint/OneDrive folder
-        │                        (the folder syncs to the analyst's machine)
-        ▼
-<data folder>/inbox/VAPT-request.json
-        │
-        ▼
-TVM Portal watches inbox/ ──▶ parses the file ──▶ creates the Project Code Request
-        │                                             │
-        ▼                                             ▼
-moves file to inbox/processed/              UI updates immediately
-```
+<img width="1122" height="1402" alt="powerautomate-flowchat" src="https://github.com/user-attachments/assets/d44aea97-f049-4937-a768-a1f71a344f28" />
+
 
 The app watches `<data folder>/inbox/` with a filesystem watcher **plus a
 30-second poll** (synced folders don't always emit change events). Processed

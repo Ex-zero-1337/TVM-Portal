@@ -72,7 +72,7 @@ export function importNessusContent(
           environment: 'Production',
           exposure: assessment.type === 'External VA' ? 'external' : 'internal',
           applicationId: assessment.applicationId,
-          os: '',
+          os: row.os,
           status: 'Pending',
           notes: `Auto-created by Nessus import on ${today}`,
           sourceFile
@@ -82,17 +82,23 @@ export function importNessusContent(
         result.hostsCreated++
       }
       attachedHostIds.add(host.id)
+      // Older imports (and CSV rows) leave the OS blank — backfill it when the scan knows it.
+      if (row.os && !host.os) {
+        host = store.update('hosts', host.id, { os: row.os })
+        hostsById.set(host.id, host)
+      }
 
       // IP (not host record id) is the identity here: host records are
       // per-import, but the same IP across imports must still match for
-      // retest/regression detection.
+      // retest/regression detection. Compliance checks all share one plugin
+      // id, so the check name is part of their identity.
       const fingerprint = fingerprintOf({
         hostId: '',
         ip: row.ip,
         port: row.port,
         pluginId: row.pluginId,
         endpoint: '',
-        parameter: ''
+        parameter: row.complianceResult ? row.name : ''
       })
       if (existingInAssessment.has(fingerprint)) {
         result.duplicates++
@@ -119,6 +125,7 @@ export function importNessusContent(
         cwe: '',
         owasp: '',
         pluginId: row.pluginId,
+        pluginName: row.pluginName,
         endpoint: '',
         port: row.port,
         parameter: '',
@@ -126,7 +133,10 @@ export function importNessusContent(
         evidence: row.evidence,
         attachments: [],
         recommendation: row.solution,
-        status: 'Open',
+        // Compliance results map onto the finding lifecycle: PASSED checks
+        // arrive closed (shown as "Passed" in the host module), everything
+        // else is an open issue (shown as "Failed").
+        status: row.complianceResult === 'PASSED' ? 'Closed' : 'Open',
         classification,
         fingerprint,
         projectCode: assessmentProjectCode,
@@ -136,7 +146,7 @@ export function importNessusContent(
         firstIdentifiedDate: lifecycle?.firstIdentifiedDate ?? '',
         discoveredDate: today,
         slaDueDate: slaDueDate(row.severity, today),
-        closedDate: ''
+        closedDate: row.complianceResult === 'PASSED' ? today : ''
       })
       result.imported++
     } catch (e) {

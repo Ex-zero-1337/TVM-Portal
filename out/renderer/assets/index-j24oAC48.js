@@ -12749,6 +12749,7 @@ const LOG_CATEGORIES = [
 const SCANNER_TYPES = ["Nessus", "Tenable.io"];
 const REQUEST_STATUSES = [
   "New",
+  "Acknowledge",
   "Pending Approval",
   "Approved",
   "Scheduled",
@@ -12808,6 +12809,7 @@ const STATUS_TONE = {
   Planned: "tone-blue",
   Delivered: "tone-green",
   Approved: "tone-green",
+  Acknowledge: "tone-green",
   Scheduled: "tone-blue",
   Reporting: "tone-amber",
   "Pending Approval": "tone-amber",
@@ -12821,6 +12823,19 @@ const STATUS_TONE = {
 };
 function StatusBadge({ value }) {
   return /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: `badge ${STATUS_TONE[value] ?? "tone-gray"}`, children: value });
+}
+function DetailField({ label, value, wide }) {
+  if (value === void 0 || value === null || value === "") return null;
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: `req-field${wide ? " wide" : ""}`, children: [
+    label && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "req-field-label", children: label }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "req-field-value", children: value })
+  ] });
+}
+function DetailSection({ title, children }) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "req-detail-section", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("h4", { children: title }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "req-detail-grid", children })
+  ] });
 }
 function DataTable({
   rows,
@@ -13570,11 +13585,113 @@ function HostsPage() {
     editing && /* @__PURE__ */ jsxRuntimeExports.jsx(EditHostModal, { host: editing, onClose: () => setEditing(null) })
   ] });
 }
+function cleanText(v) {
+  if (!v) return "";
+  return String(v).replace(/_x000D_/g, "").split("\n").map((s) => s.trim()).filter(Boolean).join("\n");
+}
+function hostOf(url) {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return url.length > 60 ? `${url.slice(0, 57)}…` : url;
+  }
+}
+function RequestDetail({ r, close, edit }) {
+  const s = r.source ?? {};
+  const attachments = cleanText(s.attachments).split("\n").filter((u) => u);
+  const reviewed = [cleanText(s.reviewerName), cleanText(s.timeOfReview) && `on ${cleanText(s.timeOfReview).replace("T", " ")}`].filter(Boolean).join(" ");
+  const section = (title, children) => /* @__PURE__ */ jsxRuntimeExports.jsx(DetailSection, { title, children });
+  const approval = cleanText(s.approvalStatus);
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(Modal, { title: "Request Details", onClose: close, wide: true, children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "req-detail", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("header", { className: "req-detail-head", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("code", { className: "req-detail-code", children: r.projectCode || "—" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("h3", { children: r.title })
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "req-detail-badges", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(StatusBadge, { value: r.status }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(StatusBadge, { value: r.priority })
+        ] })
+      ] }),
+      section(
+        "Requester",
+        /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(DetailField, { label: "Name", value: r.requestedBy }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(DetailField, { label: "Email", value: r.requesterEmail }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(DetailField, { label: "Department / Division", value: r.department }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            DetailField,
+            {
+              label: "Additional Recipients",
+              value: cleanText(s.additionalEmailRecipients).split("\n").join("; ")
+            }
+          )
+        ] })
+      ),
+      section(
+        "System",
+        /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(DetailField, { label: "System Name", value: r.systemName }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(DetailField, { label: "Type of System", value: cleanText(s.typeOfSystem) || r.assessmentType }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(DetailField, { label: "Purpose", value: r.purpose }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(DetailField, { label: "Environment", value: r.environment }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(DetailField, { label: "System Properties", value: cleanText(s.doesTheSystem), wide: true }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(DetailField, { label: "Scope", value: r.scope, wide: true })
+        ] })
+      ),
+      section(
+        "Schedule",
+        /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(DetailField, { label: "Target UAT Completion", value: r.targetUatDate }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(DetailField, { label: "Target Go-Live", value: r.goLiveDate }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(DetailField, { label: "Assessment Target Date", value: r.targetDate })
+        ] })
+      ),
+      (s.approvalStatus || s.comments || reviewed || attachments.length > 0) && section(
+        "Approval & Review",
+        /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+          approval && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "req-field", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "req-field-label", children: "Approval Status" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: `req-chip ${/acknowledg|approv/i.test(approval) ? "req-chip-ok" : ""}`, children: approval }) })
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(DetailField, { label: "Reviewed By", value: reviewed }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(DetailField, { label: "Comments", value: cleanText(s.comments), wide: true }),
+          attachments.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "req-field wide", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "req-field-label", children: "Attachments" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "req-field-value", children: attachments.map((url, i) => /* @__PURE__ */ jsxRuntimeExports.jsxs("a", { href: url, target: "_blank", rel: "noreferrer", className: "req-attachment", title: url, children: [
+              "Attachment ",
+              attachments.length > 1 ? i + 1 : "",
+              " — ",
+              hostOf(url)
+            ] }, url)) })
+          ] })
+        ] })
+      ),
+      r.notes && section("Notes", /* @__PURE__ */ jsxRuntimeExports.jsx(DetailField, { label: "", value: r.notes, wide: true }))
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "modal-actions", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "spacer" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { onClick: close, children: "Close" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "primary", onClick: edit, children: "Edit Request" })
+    ] })
+  ] });
+}
+function urgencyDate(r) {
+  return r.goLiveDate || r.targetUatDate || "";
+}
+function byUrgency(a, b) {
+  const da = urgencyDate(a);
+  const db_ = urgencyDate(b);
+  if (da && db_ && da !== db_) return da < db_ ? -1 : 1;
+  if (da !== db_) return da ? -1 : 1;
+  return (a.createdAt || "") < (b.createdAt || "") ? -1 : 1;
+}
 function RequestsPage({ category }) {
   const db = useDb();
   const appOptions = db.applications.map((a) => ({ value: a.id, label: a.name }));
   const types = category ? CATEGORY_TYPES[category] : ASSESSMENT_TYPES;
-  const rows = category ? db.requests.filter((r) => types.includes(r.assessmentType)) : db.requests;
+  const rows = (category ? db.requests.filter((r) => types.includes(r.assessmentType)) : db.requests).slice().sort(byUrgency);
   return /* @__PURE__ */ jsxRuntimeExports.jsx(
     CrudPage,
     {
@@ -13599,20 +13716,25 @@ function RequestsPage({ category }) {
         targetDate: ""
       }),
       validate: (d) => !d.title ? "Title is required." : null,
+      renderDetail: (r, close, edit) => /* @__PURE__ */ jsxRuntimeExports.jsx(RequestDetail, { r, close, edit }),
       columns: [
         {
           key: "projectCode",
           label: "Project Code",
+          width: "200px",
           render: (r) => /* @__PURE__ */ jsxRuntimeExports.jsx("code", { children: r.projectCode || "—" })
         },
         { key: "title", label: "Title" },
-        { key: "systemName", label: "System" },
         { key: "department", label: "Department" },
-        { key: "applicationId", label: "Application", render: (r) => db.appName(r.applicationId) },
         { key: "assessmentType", label: "Type" },
-        { key: "priority", label: "Priority", render: (r) => /* @__PURE__ */ jsxRuntimeExports.jsx(StatusBadge, { value: r.priority }) },
+        { key: "targetUatDate", label: "UAT Completion", render: (r) => r.targetUatDate || "—" },
         { key: "status", label: "Status", render: (r) => /* @__PURE__ */ jsxRuntimeExports.jsx(StatusBadge, { value: r.status }) },
-        { key: "targetDate", label: "Target Date" }
+        {
+          key: "goLiveDate",
+          label: "Go-Live",
+          sortValue: (r) => urgencyDate(r) || "9999-12-31",
+          render: (r) => r.goLiveDate ? r.goLiveDate : r.targetUatDate ? `${r.targetUatDate} (UAT)` : "—"
+        }
       ],
       fields: [
         {
@@ -13644,6 +13766,11 @@ function RequestsPage({ category }) {
     }
   );
 }
+function agingDays(f) {
+  if (!f.discoveredDate) return 0;
+  const end = f.closedDate ? new Date(f.closedDate) : /* @__PURE__ */ new Date();
+  return Math.max(0, Math.round((end.getTime() - new Date(f.discoveredDate).getTime()) / 864e5));
+}
 function humanSize(n) {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`;
@@ -13668,17 +13795,13 @@ function Attachments({ finding }) {
     await db.reload();
   };
   return /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsx("h3", { children: "Evidence Attachments" }),
-    attachments.length === 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "muted", children: "No attachments." }),
+    attachments.length === 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "muted", children: "No POC attached." }),
     /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "attach-list", children: attachments.map((a) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "attach-row", children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "link", onClick: () => api.evidenceOpen(a.path), title: "Open", children: [
-        "📎 ",
-        a.filename
-      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "link", onClick: () => api.evidenceOpen(a.path), title: "Open", children: a.filename }),
       /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "muted", children: humanSize(a.size) }),
       /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "icon-btn", onClick: () => remove(a.id), title: "Remove", children: "✕" })
     ] }, a.id)) }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx("button", { onClick: add, disabled: busy, children: busy ? "Attaching…" : "➕ Attach evidence (png/jpg/jpeg/gif/txt/zip)" })
+    /* @__PURE__ */ jsxRuntimeExports.jsx("button", { onClick: add, disabled: busy, children: busy ? "Attaching…" : "+ Attach POC (png/jpg/jpeg/gif/txt/zip)" })
   ] });
 }
 function FindingDetail({ finding, onClose, onEdit }) {
@@ -13686,94 +13809,90 @@ function FindingDetail({ finding, onClose, onEdit }) {
   const f = db.findings.find((x) => x.id === finding.id) ?? finding;
   const overdue = isOverdue(f);
   const days = f.slaDueDate ? slaDaysRemaining(f) : null;
-  const Section2 = ({ label, text }) => text ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsx("h3", { children: label }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "prewrap", children: text })
-  ] }) : null;
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs(Modal, { title: f.title, onClose, wide: true, children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "detail-grid", children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("b", { children: "Severity:" }),
-        " ",
-        /* @__PURE__ */ jsxRuntimeExports.jsx(SeverityBadge, { value: f.severity }),
-        " ",
-        f.cvss ? `(CVSS ${f.cvss})` : ""
-      ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("b", { children: "Status:" }),
-        " ",
-        /* @__PURE__ */ jsxRuntimeExports.jsx(StatusBadge, { value: f.status })
-      ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("b", { children: "Classification:" }),
-        " ",
-        /* @__PURE__ */ jsxRuntimeExports.jsx(StatusBadge, { value: f.classification }),
-        " ",
-        f.classification === "Existing" && f.firstIdentifiedPeriod && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "muted", children: [
-          "• First Identified: ",
-          f.firstIdentifiedAssessmentType ? `${f.firstIdentifiedAssessmentType} · ` : "",
-          f.firstIdentifiedPeriod,
-          f.firstIdentifiedProjectCode ? ` · ${f.firstIdentifiedProjectCode}` : ""
+  const host = f.hostId ? db.hosts.find((h) => h.id === f.hostId) : void 0;
+  const assessment = db.assessments.find((a) => a.id === f.assessmentId);
+  const category = assessment ? assessment.category || categoryOfType(assessment.type) : void 0;
+  const passed = f.status === "Resolved" || f.status === "Closed";
+  const firstIdentified = f.classification === "Existing" && f.firstIdentifiedPeriod ? [f.firstIdentifiedAssessmentType, f.firstIdentifiedPeriod, f.firstIdentifiedProjectCode].filter(Boolean).join(" · ") : "";
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(Modal, { title: "Finding Details", onClose, wide: true, children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "req-detail", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("header", { className: "req-detail-head", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+          f.projectCode && /* @__PURE__ */ jsxRuntimeExports.jsx("code", { className: "req-detail-code", children: f.projectCode }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("h3", { children: f.title })
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "req-detail-badges", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(SeverityBadge, { value: f.severity }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(StatusBadge, { value: f.status }),
+          category === "host" && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: `req-chip ${passed ? "req-chip-ok" : "req-chip-fail"}`, children: passed ? "Passed" : "Failed" })
         ] })
       ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("b", { children: "Project Code:" }),
-        " ",
-        f.projectCode || "—"
+      /* @__PURE__ */ jsxRuntimeExports.jsxs(DetailSection, { title: "Overview", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx(DetailField, { label: "Severity", value: `${f.severity}${f.cvss ? ` (CVSS ${f.cvss})` : ""}` }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(DetailField, { label: "Classification", value: f.classification }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(DetailField, { label: "First Identified", value: firstIdentified }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(DetailField, { label: "Assessment", value: db.assessmentName(f.assessmentId) }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(DetailField, { label: "Application", value: db.appName(f.applicationId) || void 0 }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(DetailField, { label: "Project Code", value: f.projectCode })
       ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("b", { children: "Application:" }),
-        " ",
-        db.appName(f.applicationId)
+      /* @__PURE__ */ jsxRuntimeExports.jsxs(DetailSection, { title: "Affected Asset", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          DetailField,
+          {
+            label: "Asset",
+            value: f.affectedAsset || (f.hostId ? `${db.hostLabel(f.hostId)}${f.port ? `:${f.port}` : ""}` : "")
+          }
+        ),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(DetailField, { label: "Endpoint / URL", value: f.endpoint }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(DetailField, { label: "Parameter", value: f.parameter }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(DetailField, { label: "Port", value: f.port && f.port !== "0" ? f.port : "" }),
+        host && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(DetailField, { label: "IP Address", value: host.ip }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(DetailField, { label: "Hostname", value: host.hostname }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(DetailField, { label: "Operating System", value: host.os || "Unknown (not reported by scan)" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(DetailField, { label: "Environment", value: host.environment }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(DetailField, { label: "Exposure", value: /* @__PURE__ */ jsxRuntimeExports.jsx(StatusBadge, { value: host.exposure }) }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(DetailField, { label: "Source Scan", value: host.sourceFile || "Manual" })
+        ] })
       ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("b", { children: "Affected Asset:" }),
-        " ",
-        f.affectedAsset || (f.hostId ? `${db.hostLabel(f.hostId)}${f.port ? `:${f.port}` : ""}` : "—")
+      (f.cve || f.cwe || f.owasp || f.pluginId || f.pluginName) && /* @__PURE__ */ jsxRuntimeExports.jsxs(DetailSection, { title: "References", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx(DetailField, { label: "CVE", value: f.cve }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(DetailField, { label: "CWE", value: f.cwe }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(DetailField, { label: "OWASP", value: f.owasp }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(DetailField, { label: "Plugin", value: f.pluginName }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(DetailField, { label: "Plugin ID", value: f.pluginId })
       ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("b", { children: "Assessment:" }),
-        " ",
-        db.assessmentName(f.assessmentId)
+      /* @__PURE__ */ jsxRuntimeExports.jsxs(DetailSection, { title: "Timeline & SLA", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx(DetailField, { label: "Discovered", value: f.discoveredDate }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          DetailField,
+          {
+            label: "SLA Due",
+            value: f.slaDueDate ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+              f.slaDueDate,
+              " ",
+              days !== null && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: overdue ? "sla-overdue" : "sla-ok", children: overdue ? `${-days} day(s) overdue` : `${days} day(s) left` })
+            ] }) : ""
+          }
+        ),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(DetailField, { label: "Closed", value: f.closedDate })
       ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("b", { children: "Endpoint:" }),
-        " ",
-        f.endpoint || "—",
-        " ",
-        f.parameter ? `(param: ${f.parameter})` : ""
+      f.description && /* @__PURE__ */ jsxRuntimeExports.jsx(DetailSection, { title: "Description", children: /* @__PURE__ */ jsxRuntimeExports.jsx(DetailField, { label: "", value: f.description, wide: true }) }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs(DetailSection, { title: "Proof of Concept (POC)", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx(DetailField, { label: "", value: f.evidence, wide: true }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "req-field wide", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Attachments, { finding: f }) })
       ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("b", { children: "CVE / CWE / OWASP:" }),
-        " ",
-        [f.cve, f.cwe, f.owasp].filter(Boolean).join(" · ") || "—"
-      ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("b", { children: "Discovered:" }),
-        " ",
-        f.discoveredDate || "—"
-      ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("b", { children: "SLA due:" }),
-        " ",
-        f.slaDueDate || "—",
-        " ",
-        days !== null && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: overdue ? "sla-overdue" : "sla-ok", children: overdue ? `${-days} day(s) overdue` : `${days} day(s) left` })
+      f.recommendation && /* @__PURE__ */ jsxRuntimeExports.jsx(DetailSection, { title: "Recommendation", children: /* @__PURE__ */ jsxRuntimeExports.jsx(DetailField, { label: "", value: f.recommendation, wide: true }) }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { className: "muted", children: [
+        "Fingerprint: ",
+        f.fingerprint?.slice(0, 24),
+        "…"
       ] })
-    ] }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx(Section2, { label: "Description", text: f.description }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx(Section2, { label: "Evidence (notes)", text: f.evidence }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx(Attachments, { finding: f }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx(Section2, { label: "Recommendation", text: f.recommendation }),
-    /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { className: "muted", children: [
-      "Fingerprint: ",
-      f.fingerprint?.slice(0, 24),
-      "…"
     ] }),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "modal-actions", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "spacer" }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { onClick: onEdit, children: "Edit" }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "primary", onClick: onClose, children: "Close" })
+      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { onClick: onClose, children: "Close" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "primary", onClick: onEdit, children: "Edit Finding" })
     ] })
   ] });
 }
@@ -13920,14 +14039,36 @@ function FindingsPage({ category }) {
             sortValue: (r) => SEVERITIES.indexOf(r.severity),
             render: (r) => /* @__PURE__ */ jsxRuntimeExports.jsx(SeverityBadge, { value: r.severity })
           },
-          { key: "cvss", label: "CVSS" },
+          // Host module runs compliance audits — CVSS does not apply there.
+          ...category === "host" ? [] : [{ key: "cvss", label: "CVSS" }],
           {
             key: "affectedAsset",
             label: "Affected Asset",
             render: (r) => r.affectedAsset || (r.hostId ? db.hostLabel(r.hostId) : "—")
           },
-          { key: "status", label: "Status", render: (r) => /* @__PURE__ */ jsxRuntimeExports.jsx(StatusBadge, { value: r.status }) },
-          { key: "classification", label: "Class", render: (r) => /* @__PURE__ */ jsxRuntimeExports.jsx(StatusBadge, { value: r.classification }) },
+          {
+            key: "status",
+            label: "Status",
+            // Host module: compliance-style result — Failed while the issue
+            // is open, Passed once resolved/closed (v6.6.9).
+            render: (r) => category === "host" ? /* @__PURE__ */ jsxRuntimeExports.jsx(
+              "span",
+              {
+                className: `req-chip ${r.status === "Resolved" || r.status === "Closed" ? "req-chip-ok" : "req-chip-fail"}`,
+                children: r.status === "Resolved" || r.status === "Closed" ? "Passed" : "Failed"
+              }
+            ) : /* @__PURE__ */ jsxRuntimeExports.jsx(StatusBadge, { value: r.status })
+          },
+          {
+            key: "aging",
+            label: "Aging",
+            sortValue: (r) => agingDays(r),
+            render: (r) => /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: isOverdue(r) ? "sla-overdue" : "", children: [
+              agingDays(r),
+              "d",
+              isOverdue(r) ? " ⚠" : ""
+            ] })
+          },
           {
             key: "slaDueDate",
             label: "SLA Due",
@@ -14524,6 +14665,51 @@ function AssessmentsPage({ category }) {
   const db = useDb();
   const [tab, setTab] = reactExports.useState("assessments");
   const [moduleFetch, setModuleFetch] = reactExports.useState(null);
+  const [importing, setImporting] = reactExports.useState(false);
+  const [selected, setSelected] = reactExports.useState(/* @__PURE__ */ new Set());
+  const [removeArmed, setRemoveArmed] = reactExports.useState(false);
+  const [removeWord, setRemoveWord] = reactExports.useState("");
+  const [removing, setRemoving] = reactExports.useState(false);
+  const toggleSelect = (id) => setSelected((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    return next;
+  });
+  const removeConfirmed = removeWord.trim().toLowerCase() === "remove";
+  const removeSelected = async () => {
+    if (!removeConfirmed || removing) return;
+    setRemoving(true);
+    try {
+      await api.assessmentsRemoveMany([...selected]);
+      await db.reload();
+      setSelected(/* @__PURE__ */ new Set());
+      setRemoveArmed(false);
+      setRemoveWord("");
+    } catch (e) {
+      alert(`Remove failed: ${e instanceof Error ? e.message : e}`);
+    } finally {
+      setRemoving(false);
+    }
+  };
+  const importFiles = async () => {
+    setImporting(true);
+    try {
+      const s = await api.importNessusFiles(category);
+      if (!s) return;
+      await db.reload();
+      alert(
+        `Imported ${s.created} file(s) as assessment(s): ${s.imported} finding(s), ${s.duplicates} duplicate(s) skipped, ${s.hostsCreated} host(s) created.` + (s.failures.length ? `
+
+Failures:
+${s.failures.join("\n")}` : "")
+      );
+    } catch (e) {
+      alert(`Import failed: ${e instanceof Error ? e.message : e}`);
+    } finally {
+      setImporting(false);
+    }
+  };
   const types = CATEGORY_TYPES[category];
   const rows = db.assessments.filter((a) => (a.category || categoryOfType(a.type)) === category);
   const appOptions = db.applications.map((a) => ({ value: a.id, label: a.name }));
@@ -14560,9 +14746,29 @@ function AssessmentsPage({ category }) {
         deleteKeyword: "delete",
         toolbarExtra: /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx("button", { onClick: () => setModuleFetch("all"), children: "🛰 Fetch All from Scanner" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { onClick: () => setModuleFetch("selected"), children: "🛰 Fetch Selected Only from Scanner" })
+          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { onClick: () => setModuleFetch("selected"), children: "🛰 Fetch Selected Only from Scanner" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { onClick: () => void importFiles(), disabled: importing, children: importing ? "Importing…" : "⬆ Import Nessus/CSV File(s)" }),
+          selected.size > 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "danger", onClick: () => setRemoveArmed(true), children: [
+            "🗑 Remove Selected (",
+            selected.size,
+            ")"
+          ] })
         ] }),
         columns: [
+          {
+            key: "select",
+            label: "",
+            width: "36px",
+            render: (r) => /* @__PURE__ */ jsxRuntimeExports.jsx(
+              "input",
+              {
+                type: "checkbox",
+                checked: selected.has(r.id),
+                onClick: (e) => e.stopPropagation(),
+                onChange: () => toggleSelect(r.id)
+              }
+            )
+          },
           { key: "name", label: "Name" },
           { key: "applicationId", label: "Application", render: (r) => db.appName(r.applicationId) },
           { key: "type", label: "Type", render: (r) => /* @__PURE__ */ jsxRuntimeExports.jsx(StatusBadge, { value: r.type === "Retest" ? "Retest" : r.type }) },
@@ -14600,7 +14806,55 @@ function AssessmentsPage({ category }) {
         renderDetail: (row, close, edit) => /* @__PURE__ */ jsxRuntimeExports.jsx(AssessmentDetail, { assessment: row, onClose: close, onEdit: edit })
       }
     ),
-    moduleFetch && /* @__PURE__ */ jsxRuntimeExports.jsx(ModuleFetchModal, { category, mode: moduleFetch, onClose: () => setModuleFetch(null) })
+    moduleFetch && /* @__PURE__ */ jsxRuntimeExports.jsx(ModuleFetchModal, { category, mode: moduleFetch, onClose: () => setModuleFetch(null) }),
+    removeArmed && /* @__PURE__ */ jsxRuntimeExports.jsxs(
+      Modal,
+      {
+        title: `Remove ${selected.size} assessment(s)?`,
+        onClose: () => {
+          setRemoveArmed(false);
+          setRemoveWord("");
+        },
+        children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { children: [
+            "This permanently removes the selected assessment(s) ",
+            /* @__PURE__ */ jsxRuntimeExports.jsx("b", { children: "including their findings, evidence attachments and hosts" }),
+            " that belong to no other assessment — from the portal and from the data folder. This cannot be undone."
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { children: [
+            "Type ",
+            /* @__PURE__ */ jsxRuntimeExports.jsx("code", { children: "remove" }),
+            " to confirm:"
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "input",
+            {
+              autoFocus: true,
+              value: removeWord,
+              placeholder: "remove",
+              onChange: (e) => setRemoveWord(e.target.value),
+              onKeyDown: (e) => {
+                if (e.key === "Enter" && removeConfirmed) void removeSelected();
+              }
+            }
+          ),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "modal-actions", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "spacer" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(
+              "button",
+              {
+                onClick: () => {
+                  setRemoveArmed(false);
+                  setRemoveWord("");
+                },
+                children: "Cancel"
+              }
+            ),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "danger", disabled: !removeConfirmed || removing, onClick: () => void removeSelected(), children: removing ? "Removing…" : "Remove" })
+          ] })
+        ]
+      }
+    )
   ] });
 }
 function FindingMiniTable({ rows }) {
@@ -14965,11 +15219,56 @@ function SettingsPage() {
             ] })
           ] }),
           /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "card", children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx("h3", { children: "Reports Folder" }),
-            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "settings-row", children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx("code", { children: settings.reportsDir }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx("button", { onClick: () => api.openPath(settings.reportsDir), children: "Open in file manager" })
-            ] })
+            /* @__PURE__ */ jsxRuntimeExports.jsx("h3", { children: "Storage Locations" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "muted", children: "Each area can live in its own folder. Blank entries use the default folder inside the data folder; changing a location moves the stored files there automatically." }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(
+              StorageLocationRow,
+              {
+                label: "Reports",
+                value: settings.reportsDir,
+                onChoose: (dir) => save({ reportsDir: dir }, "Reports folder updated.")
+              }
+            ),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(
+              StorageLocationRow,
+              {
+                label: "Requests",
+                value: settings.requestsDir || "",
+                fallback: `${settings.dataDir}/requests`,
+                onChoose: (dir) => save({ requestsDir: dir }, "Requests folder updated — files migrated."),
+                onReset: () => save({ requestsDir: "" }, "Requests folder reset to default — files migrated.")
+              }
+            ),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(
+              StorageLocationRow,
+              {
+                label: "Web Findings",
+                value: settings.webFindingsDir || "",
+                fallback: `${settings.dataDir}/web-findings`,
+                onChoose: (dir) => save({ webFindingsDir: dir }, "Web findings folder updated — files migrated."),
+                onReset: () => save({ webFindingsDir: "" }, "Web findings folder reset to default — files migrated.")
+              }
+            ),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(
+              StorageLocationRow,
+              {
+                label: "Internal Findings",
+                value: settings.internalFindingsDir || "",
+                fallback: `${settings.dataDir}/internal-findings`,
+                onChoose: (dir) => save({ internalFindingsDir: dir }, "Internal findings folder updated — files migrated."),
+                onReset: () => save({ internalFindingsDir: "" }, "Internal findings folder reset to default — files migrated.")
+              }
+            ),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(
+              StorageLocationRow,
+              {
+                label: "External Findings",
+                value: settings.externalFindingsDir || "",
+                fallback: `${settings.dataDir}/external-findings`,
+                onChoose: (dir) => save({ externalFindingsDir: dir }, "External findings folder updated — files migrated."),
+                onReset: () => save({ externalFindingsDir: "" }, "External findings folder reset to default — files migrated.")
+              }
+            )
           ] })
         ] }),
         section === "Scanner Connections" && /* @__PURE__ */ jsxRuntimeExports.jsx(ScannerSettings, { settings, onSave: save }),
@@ -15005,6 +15304,29 @@ function SettingsPage() {
         ] })
       ] })
     ] })
+  ] });
+}
+function StorageLocationRow({
+  label,
+  value,
+  fallback,
+  onChoose,
+  onReset
+}) {
+  const effective = value || fallback || "";
+  const choose = async () => {
+    const dir = await api.chooseDir();
+    if (dir) await onChoose(dir);
+  };
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "settings-row", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("b", { style: { minWidth: 130 }, children: label }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("code", { children: [
+      effective,
+      !value && fallback ? " (default)" : ""
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("button", { onClick: choose, children: "Change…" }),
+    onReset && value && /* @__PURE__ */ jsxRuntimeExports.jsx("button", { onClick: () => void onReset(), children: "Reset to default" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("button", { onClick: () => api.openPath(effective), children: "Open" })
   ] });
 }
 function LogsSettings({
@@ -15545,10 +15867,16 @@ function ChartsPage() {
   const db = useDb();
   const theme = useEffectiveTheme();
   const [scope, setScope] = reactExports.useState("application");
+  const [viewBy, setViewBy] = reactExports.useState("app");
   const [appId, setAppId] = reactExports.useState("");
+  const [code, setCode] = reactExports.useState("");
   const chartRef = reactExports.useRef(null);
+  const codes = reactExports.useMemo(
+    () => [...new Set(db.requests.map((r) => r.projectCode).filter(Boolean))].sort(),
+    [db.requests]
+  );
   const scopeLabel = SCOPES.find((s) => s.id === scope).label;
-  const title = scope === "application" ? `${db.appName(appId)} — Findings by Severity` : `${scopeLabel} — Findings by Severity`;
+  const title = scope === "application" ? `${viewBy === "code" ? code || "—" : db.appName(appId)} — Findings by Severity` : `${scopeLabel} — Findings by Severity`;
   const counts = reactExports.useMemo(() => {
     const assessmentById = new Map(db.assessments.map((a) => [a.id, a]));
     const inScope = db.findings.filter((f) => {
@@ -15557,6 +15885,7 @@ function ChartsPage() {
       const category = a ? a.category || categoryOfType(a.type) : void 0;
       switch (scope) {
         case "application":
+          if (viewBy === "code") return !!code && f.projectCode === code;
           return !!appId && f.applicationId === appId;
         case "web":
           return category === "web";
@@ -15571,9 +15900,9 @@ function ChartsPage() {
       }
     });
     return CHART_SEVERITIES.map((s) => [s, inScope.filter((f) => f.severity === s).length]);
-  }, [db.findings, db.assessments, scope, appId]);
+  }, [db.findings, db.assessments, scope, appId, viewBy, code]);
   const total = counts.reduce((n, [, v]) => n + v, 0);
-  const needsApp = scope === "application" && !appId;
+  const needsApp = scope === "application" && (viewBy === "code" ? !code : !appId);
   const safeName = title.replace(/\W+/g, "-");
   const getPng = async () => {
     const svg = chartRef.current?.querySelector("svg");
@@ -15622,15 +15951,34 @@ function ChartsPage() {
         /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "Scope" }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("select", { value: scope, onChange: (e) => setScope(e.target.value), children: SCOPES.map((s) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: s.id, children: s.label }, s.id)) })
       ] }),
-      scope === "application" && /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "Application" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("select", { value: appId, onChange: (e) => setAppId(e.target.value), children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "", children: "— select an application —" }),
-          db.applications.map((a) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: a.id, children: a.name }, a.id))
+      scope === "application" && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "View by" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("select", { value: viewBy, onChange: (e) => setViewBy(e.target.value), children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "app", children: "Application" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "code", children: "Project Code" })
+          ] })
+        ] }),
+        viewBy === "app" ? /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "Application" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("select", { value: appId, onChange: (e) => setAppId(e.target.value), children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "", children: "— select an application —" }),
+            db.applications.map((a) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: a.id, children: a.name }, a.id))
+          ] })
+        ] }) : /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "Project Code" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("select", { value: code, onChange: (e) => setCode(e.target.value), children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "", children: "— select a project code —" }),
+            codes.map((c) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: c, children: c }, c))
+          ] })
         ] })
       ] })
     ] }),
-    needsApp ? /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "muted", children: "Select an application above to build its chart." }) : /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+    needsApp ? /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { className: "muted", children: [
+      "Select ",
+      viewBy === "code" ? "a project code" : "an application",
+      " above to build its chart."
+    ] }) : /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
       /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "card chart-workspace", ref: chartRef, children: /* @__PURE__ */ jsxRuntimeExports.jsx(SeverityBarChart, { title, data: counts, theme }) }),
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "toolbar chart-actions", children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx("button", { onClick: copyImage, children: "📋 Copy chart as image" }),

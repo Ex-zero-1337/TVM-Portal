@@ -603,6 +603,60 @@ export function AssessmentsPage({ category }: { category: AssessmentCategory }) 
   const db = useDb()
   const [tab, setTab] = useState<'assessments' | 'requests' | 'findings'>('assessments')
   const [moduleFetch, setModuleFetch] = useState<'all' | 'selected' | null>(null)
+  const [importing, setImporting] = useState(false)
+  // Bulk removal (v6.6.12): row checkboxes arm a "Remove Selected" action
+  // that requires typing the keyword "remove" — same guard style as v6.5
+  // single deletion, for cleaning up many fetched/imported assessments.
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [removeArmed, setRemoveArmed] = useState(false)
+  const [removeWord, setRemoveWord] = useState('')
+  const [removing, setRemoving] = useState(false)
+
+  const toggleSelect = (id: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+
+  const removeConfirmed = removeWord.trim().toLowerCase() === 'remove'
+
+  const removeSelected = async () => {
+    if (!removeConfirmed || removing) return
+    setRemoving(true)
+    try {
+      await api.assessmentsRemoveMany([...selected])
+      await db.reload()
+      setSelected(new Set())
+      setRemoveArmed(false)
+      setRemoveWord('')
+    } catch (e) {
+      alert(`Remove failed: ${e instanceof Error ? e.message : e}`)
+    } finally {
+      setRemoving(false)
+    }
+  }
+
+  // Manual counterpart of the scanner fetch (v6.6.10): pick one or many
+  // Nessus/CSV files; each becomes its own assessment in this module.
+  const importFiles = async () => {
+    setImporting(true)
+    try {
+      const s = await api.importNessusFiles(category)
+      if (!s) return // dialog cancelled
+      await db.reload()
+      alert(
+        `Imported ${s.created} file(s) as assessment(s): ${s.imported} finding(s), ` +
+          `${s.duplicates} duplicate(s) skipped, ${s.hostsCreated} host(s) created.` +
+          (s.failures.length ? `\n\nFailures:\n${s.failures.join('\n')}` : '')
+      )
+    } catch (e) {
+      alert(`Import failed: ${e instanceof Error ? e.message : e}`)
+    } finally {
+      setImporting(false)
+    }
+  }
 
   const types = CATEGORY_TYPES[category]
   const rows = db.assessments.filter((a) => (a.category || categoryOfType(a.type)) === category)
@@ -649,9 +703,30 @@ export function AssessmentsPage({ category }: { category: AssessmentCategory }) 
             <>
               <button onClick={() => setModuleFetch('all')}>🛰 Fetch All from Scanner</button>
               <button onClick={() => setModuleFetch('selected')}>🛰 Fetch Selected Only from Scanner</button>
+              <button onClick={() => void importFiles()} disabled={importing}>
+                {importing ? 'Importing…' : '⬆ Import Nessus/CSV File(s)'}
+              </button>
+              {selected.size > 0 && (
+                <button className="danger" onClick={() => setRemoveArmed(true)}>
+                  🗑 Remove Selected ({selected.size})
+                </button>
+              )}
             </>
           }
           columns={[
+            {
+              key: 'select',
+              label: '',
+              width: '36px',
+              render: (r) => (
+                <input
+                  type="checkbox"
+                  checked={selected.has(r.id)}
+                  onClick={(e) => e.stopPropagation()}
+                  onChange={() => toggleSelect(r.id)}
+                />
+              )
+            },
             { key: 'name', label: 'Name' },
             { key: 'applicationId', label: 'Application', render: (r) => db.appName(r.applicationId) },
             { key: 'type', label: 'Type', render: (r) => <StatusBadge value={r.type === 'Retest' ? 'Retest' : r.type} /> },
@@ -691,6 +766,48 @@ export function AssessmentsPage({ category }: { category: AssessmentCategory }) 
       )}
 
       {moduleFetch && <ModuleFetchModal category={category} mode={moduleFetch} onClose={() => setModuleFetch(null)} />}
+
+      {removeArmed && (
+        <Modal
+          title={`Remove ${selected.size} assessment(s)?`}
+          onClose={() => {
+            setRemoveArmed(false)
+            setRemoveWord('')
+          }}
+        >
+          <p>
+            This permanently removes the selected assessment(s) <b>including their findings, evidence attachments and
+            hosts</b> that belong to no other assessment — from the portal and from the data folder. This cannot be
+            undone.
+          </p>
+          <p>
+            Type <code>remove</code> to confirm:
+          </p>
+          <input
+            autoFocus
+            value={removeWord}
+            placeholder="remove"
+            onChange={(e) => setRemoveWord(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && removeConfirmed) void removeSelected()
+            }}
+          />
+          <div className="modal-actions">
+            <span className="spacer" />
+            <button
+              onClick={() => {
+                setRemoveArmed(false)
+                setRemoveWord('')
+              }}
+            >
+              Cancel
+            </button>
+            <button className="danger" disabled={!removeConfirmed || removing} onClick={() => void removeSelected()}>
+              {removing ? 'Removing…' : 'Remove'}
+            </button>
+          </div>
+        </Modal>
+      )}
     </div>
   )
 }

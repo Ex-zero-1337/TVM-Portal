@@ -150,12 +150,23 @@ export function ChartsPage() {
   const db = useDb()
   const theme = useEffectiveTheme()
   const [scope, setScope] = useState<ScopeId>('application')
+  // Application scope can be viewed per application or per project code (v6.6.4):
+  // adhoc web findings are keyed by project code, not by application.
+  const [viewBy, setViewBy] = useState<'app' | 'code'>('app')
   const [appId, setAppId] = useState('')
+  const [code, setCode] = useState('')
   const chartRef = useRef<HTMLDivElement>(null)
+
+  const codes = useMemo(
+    () => [...new Set(db.requests.map((r) => r.projectCode).filter(Boolean))].sort(),
+    [db.requests]
+  )
 
   const scopeLabel = SCOPES.find((s) => s.id === scope)!.label
   const title =
-    scope === 'application' ? `${db.appName(appId)} — Findings by Severity` : `${scopeLabel} — Findings by Severity`
+    scope === 'application'
+      ? `${viewBy === 'code' ? code || '—' : db.appName(appId)} — Findings by Severity`
+      : `${scopeLabel} — Findings by Severity`
 
   const counts = useMemo(() => {
     const assessmentById = new Map(db.assessments.map((a) => [a.id, a]))
@@ -165,6 +176,7 @@ export function ChartsPage() {
       const category = a ? a.category || categoryOfType(a.type) : undefined
       switch (scope) {
         case 'application':
+          if (viewBy === 'code') return !!code && f.projectCode === code
           return !!appId && f.applicationId === appId
         case 'web':
           return category === 'web'
@@ -179,10 +191,10 @@ export function ChartsPage() {
       }
     })
     return CHART_SEVERITIES.map((s) => [s, inScope.filter((f) => f.severity === s).length] as [Severity, number])
-  }, [db.findings, db.assessments, scope, appId])
+  }, [db.findings, db.assessments, scope, appId, viewBy, code])
 
   const total = counts.reduce((n, [, v]) => n + v, 0)
-  const needsApp = scope === 'application' && !appId
+  const needsApp = scope === 'application' && (viewBy === 'code' ? !code : !appId)
   const safeName = title.replace(/\W+/g, '-')
 
   const getPng = async () => {
@@ -251,22 +263,47 @@ export function ChartsPage() {
           </select>
         </label>
         {scope === 'application' && (
-          <label>
-            <span>Application</span>
-            <select value={appId} onChange={(e) => setAppId(e.target.value)}>
-              <option value="">— select an application —</option>
-              {db.applications.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.name}
-                </option>
-              ))}
-            </select>
-          </label>
+          <>
+            <label>
+              <span>View by</span>
+              <select value={viewBy} onChange={(e) => setViewBy(e.target.value as 'app' | 'code')}>
+                <option value="app">Application</option>
+                <option value="code">Project Code</option>
+              </select>
+            </label>
+            {viewBy === 'app' ? (
+              <label>
+                <span>Application</span>
+                <select value={appId} onChange={(e) => setAppId(e.target.value)}>
+                  <option value="">— select an application —</option>
+                  {db.applications.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : (
+              <label>
+                <span>Project Code</span>
+                <select value={code} onChange={(e) => setCode(e.target.value)}>
+                  <option value="">— select a project code —</option>
+                  {codes.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+          </>
         )}
       </div>
 
       {needsApp ? (
-        <p className="muted">Select an application above to build its chart.</p>
+        <p className="muted">
+          Select {viewBy === 'code' ? 'a project code' : 'an application'} above to build its chart.
+        </p>
       ) : (
         <>
           <div className="card chart-workspace" ref={chartRef}>

@@ -9,6 +9,11 @@ const fastXmlParser = require("fast-xml-parser");
 const ExcelJS = require("exceljs");
 const docx = require("docx");
 const EVIDENCE_EXTENSIONS = ["png", "jpg", "jpeg", "gif", "txt", "zip"];
+const CATEGORY_TYPES = {
+  web: ["Web", "API", "Mobile", "Retest"],
+  "internal-external": ["Internal VA", "External VA", "Retest"],
+  host: ["Host VA", "Retest"]
+};
 function categoryOfType(type) {
   if (type === "Internal VA" || type === "External VA") return "internal-external";
   if (type === "Host VA") return "host";
@@ -31,6 +36,116 @@ function periodLabel(timeframe, dateIso) {
   return `Adhoc ${d.getFullYear()}`;
 }
 const SEVERITIES = ["Critical", "High", "Medium", "Low", "Info"];
+function normalizeDate(v) {
+  if (v === void 0 || v === null || v === "") return "";
+  const s = String(v).trim();
+  const dmy = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (dmy) return `${dmy[3]}-${dmy[2].padStart(2, "0")}-${dmy[1].padStart(2, "0")}`;
+  const iso = s.match(/^\d{4}-\d{2}-\d{2}/);
+  if (iso) return iso[0];
+  if (/^\d{5}$/.test(s)) {
+    return new Date(Date.UTC(1899, 11, 30) + Number(s) * 864e5).toISOString().slice(0, 10);
+  }
+  return "";
+}
+function isoToSerial(iso) {
+  const m = (iso || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return "";
+  return String(Math.round((Date.UTC(+m[1], +m[2] - 1, +m[3]) - Date.UTC(1899, 11, 30)) / 864e5));
+}
+function assessmentTypeOf(typeOfSystem) {
+  const t = (typeOfSystem || "").toLowerCase();
+  if (t.includes("mobile")) return "Mobile";
+  if (t.includes("api")) return "API";
+  if (t.includes("web")) return "Web";
+  return void 0;
+}
+const TYPE_OF_SYSTEM_LABELS = {
+  Web: "Web Application",
+  API: "API",
+  Mobile: "Mobile Application"
+};
+function requestStatusOf(approvalStatus) {
+  const s = String(approvalStatus ?? "").toLowerCase();
+  if (!s) return void 0;
+  if (s.includes("acknowledg")) return "Acknowledge";
+  if (s.includes("approv")) return "Approved";
+  if (s.includes("pending")) return "Pending Approval";
+  return void 0;
+}
+function cleanPaText(v) {
+  if (!v) return "";
+  return String(v).replace(/_x000D_/g, "").split("\n").map((line) => line.trim()).filter(Boolean).join("\n");
+}
+const PORTAL_KEYS = [
+  "id",
+  "title",
+  "applicationId",
+  "scope",
+  "environment",
+  "assessmentType",
+  "priority",
+  "status",
+  "targetDate",
+  "notes",
+  "createdAt",
+  "updatedAt"
+];
+function toPaRequestFile(r) {
+  const rec = r;
+  const portal = {};
+  for (const k of PORTAL_KEYS) portal[k] = rec[k] ?? "";
+  const source = r.source ?? {};
+  return {
+    ...source,
+    requestNumber: r.projectCode,
+    name: r.requestedBy,
+    emailAddress: r.requesterEmail,
+    departmentDivision: r.department,
+    systemName: r.systemName,
+    targetDateToGoLive: isoToSerial(r.goLiveDate) || r.goLiveDate || "",
+    targetDateOfUatCompletionServerReadiness: isoToSerial(r.targetUatDate) || r.targetUatDate || "",
+    purpose: r.purpose,
+    typeOfSystem: source.typeOfSystem || TYPE_OF_SYSTEM_LABELS[r.assessmentType] || "",
+    portal
+  };
+}
+function fromPaRequestFile(data) {
+  if (!data || typeof data !== "object" || Array.isArray(data)) return void 0;
+  const d = data;
+  if (typeof d.id === "string") return d;
+  if (!d.requestNumber && !d.portal) return void 0;
+  const portal = d.portal ?? {};
+  const { portal: _omit, ...source } = d;
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  return {
+    priority: "Medium",
+    environment: "Production",
+    assessmentType: assessmentTypeOf(String(d.typeOfSystem ?? "")) ?? "Web",
+    title: String(d.systemName ?? d.requestNumber ?? ""),
+    applicationId: "",
+    scope: "",
+    // Notes stay empty — the detail view shows every export field directly.
+    notes: "",
+    targetDate: "",
+    ...portal,
+    // Untriaged requests (still 'New') follow the export's approvalStatus;
+    // once an analyst moves the status manually, their value wins.
+    status: portal.status && portal.status !== "New" ? portal.status : requestStatusOf(d.approvalStatus) ?? "New",
+    id: portal.id || String(d.requestNumber),
+    createdAt: portal.createdAt || now,
+    updatedAt: portal.updatedAt || now,
+    projectCode: String(d.requestNumber ?? ""),
+    requestedBy: String(d.name ?? ""),
+    requesterEmail: String(d.emailAddress ?? ""),
+    department: String(d.departmentDivision ?? ""),
+    systemName: String(d.systemName ?? ""),
+    goLiveDate: normalizeDate(d.targetDateToGoLive),
+    targetUatDate: normalizeDate(d.targetDateOfUatCompletionServerReadiness),
+    purpose: String(d.purpose ?? ""),
+    source
+  };
+}
 const COLLECTIONS = [
   "requests",
   "applications",
@@ -42,9 +157,11 @@ const COLLECTIONS = [
 ];
 const FINDINGS_DIRS = {
   web: "web-findings",
-  "internal-external": "internal-external-findings",
+  internal: "internal-findings",
+  external: "external-findings",
   host: "host-findings"
 };
+const LEGACY_INT_EXT_DIR = "internal-external-findings";
 function safeSeg(s) {
   return (s || "unknown").replace(/[^\w.\- ]+/g, "_").trim() || "unknown";
 }
@@ -89,11 +206,47 @@ class Store {
     return this.settings;
   }
   setSettings(patch) {
+    const storageKeys = ["requestsDir", "webFindingsDir", "internalFindingsDir", "externalFindingsDir"];
+    const migrate = !("dataDir" in patch) && storageKeys.some((k) => k in patch && (patch[k] || "") !== (this.settings[k] || ""));
+    const oldRoots = migrate ? [this.requestsRoot(), ...this.allFindingsRoots()] : [];
+    if (migrate) {
+      this.list("requests");
+      this.list("findings");
+      this.list("assessments");
+      this.list("applications");
+    }
     this.settings = { ...this.settings, ...patch };
     this.atomicWrite(this.configPath, JSON.stringify(this.settings, null, 2));
-    this.cache.clear();
+    if (migrate) {
+      this.ensureDataDir();
+      this.persistRequests();
+      this.persistFindings();
+      const current = /* @__PURE__ */ new Set([this.requestsRoot(), ...this.allFindingsRoots()]);
+      for (const root of oldRoots) {
+        if (current.has(root)) continue;
+        for (const file of walkJsonFiles(root)) {
+          if (this.isPortalRecordFile(file)) fs.rmSync(file);
+        }
+      }
+    } else {
+      this.cache.clear();
+    }
     this.ensureDataDir();
     return this.settings;
+  }
+  /**
+   * True when a JSON file holds portal-written record(s) — a top-level `id`
+   * (flat records) or a `portal.id` block (PA-schema request files, v6.6.6).
+   * Never delete anything else (e.g. raw Power Automate exports).
+   */
+  isPortalRecordFile(file) {
+    try {
+      const data = JSON.parse(fs.readFileSync(file, "utf-8"));
+      const first = Array.isArray(data) ? data[0] : data;
+      return !!first && (typeof first.id === "string" || typeof first.portal?.id === "string");
+    } catch {
+      return false;
+    }
   }
   ensureDataDir() {
     fs.mkdirSync(this.settings.dataDir, { recursive: true });
@@ -101,9 +254,47 @@ class Store {
     fs.mkdirSync(path.join(this.settings.dataDir, "imports"), { recursive: true });
     fs.mkdirSync(path.join(this.settings.dataDir, "evidence"), { recursive: true });
   }
-  /** Absolute path for a data-folder-relative path (e.g. an evidence attachment). */
+  /** Absolute path for a data-folder-relative path (e.g. an evidence attachment). Absolute paths pass through (relocated storage roots). */
   resolve(rel) {
-    return path.join(this.settings.dataDir, rel);
+    return path.isAbsolute(rel) ? rel : path.join(this.settings.dataDir, rel);
+  }
+  /** Store `abs` relative to the data folder when inside it, absolute otherwise. */
+  storablePath(abs) {
+    const rel = path.relative(this.settings.dataDir, abs);
+    return rel.startsWith("..") ? abs : rel;
+  }
+  // -------------------------------------------------- storage roots (v6.6.3)
+  /** Effective requests folder: Settings override or `<dataDir>/requests`. */
+  requestsRoot() {
+    return this.settings.requestsDir || path.join(this.settings.dataDir, "requests");
+  }
+  /** Effective requests folder — public for the live folder watcher (v6.6.7). */
+  requestsDirPath() {
+    return this.requestsRoot();
+  }
+  /** Drop a collection's cache so the next read reloads from disk (live external file edits). */
+  invalidate(name) {
+    this.cache.delete(name);
+  }
+  /** Effective findings folder for a storage bucket (web / internal / external / host). */
+  findingsRoot(bucket) {
+    const override = {
+      web: this.settings.webFindingsDir,
+      internal: this.settings.internalFindingsDir,
+      external: this.settings.externalFindingsDir,
+      host: void 0
+    }[bucket];
+    return override || path.join(this.settings.dataDir, FINDINGS_DIRS[bucket]);
+  }
+  /** Every folder findings may live in: effective roots, defaults, and the legacy combined tree. */
+  allFindingsRoots() {
+    const roots = /* @__PURE__ */ new Set();
+    for (const bucket of ["web", "internal", "external", "host"]) {
+      roots.add(this.findingsRoot(bucket));
+      roots.add(path.join(this.settings.dataDir, FINDINGS_DIRS[bucket]));
+    }
+    roots.add(path.join(this.settings.dataDir, LEGACY_INT_EXT_DIR));
+    return [...roots];
   }
   filePath(name) {
     return path.join(this.settings.dataDir, `${name}.json`);
@@ -117,7 +308,8 @@ class Store {
   readJson(file) {
     try {
       const data = JSON.parse(fs.readFileSync(file, "utf-8"));
-      return Array.isArray(data) ? data : [data];
+      const items = Array.isArray(data) ? data : [data];
+      return items.filter((x) => x && typeof x.id === "string");
     } catch {
       return [];
     }
@@ -126,18 +318,51 @@ class Store {
   load(name) {
     if (name === "findings") return this.loadFindings();
     if (name === "hosts") return this.loadHosts();
+    if (name === "requests") return this.loadRequests();
     return this.readJson(this.filePath(name));
+  }
+  /**
+   * One file per request (`requests/VAPT-<code>.json`) in the Power Automate
+   * export schema (v6.6.6, see pa-format.ts). Flat pre-v6.6.6 records and raw
+   * PA exports without a `portal` block are accepted too.
+   */
+  loadRequests() {
+    const items = [];
+    const seen = /* @__PURE__ */ new Set();
+    const roots = /* @__PURE__ */ new Set([this.requestsRoot(), path.join(this.settings.dataDir, "requests")]);
+    for (const root of roots) {
+      for (const file of walkJsonFiles(root)) {
+        try {
+          const data = JSON.parse(fs.readFileSync(file, "utf-8"));
+          for (const entry of Array.isArray(data) ? data : [data]) {
+            const item = fromPaRequestFile(entry);
+            if (!item || seen.has(item.id)) continue;
+            seen.add(item.id);
+            items.push(item);
+          }
+        } catch {
+        }
+      }
+    }
+    if (fs.existsSync(this.filePath("requests"))) {
+      items.push(...this.readJson(this.filePath("requests")).filter((x) => !seen.has(x.id)));
+    }
+    return items;
   }
   loadFindings() {
     const items = [];
-    for (const dir of Object.values(FINDINGS_DIRS)) {
-      for (const file of walkJsonFiles(path.join(this.settings.dataDir, dir))) {
-        items.push(...this.readJson(file));
+    const seen = /* @__PURE__ */ new Set();
+    for (const root of this.allFindingsRoots()) {
+      for (const file of walkJsonFiles(root)) {
+        for (const item of this.readJson(file)) {
+          if (seen.has(item.id)) continue;
+          seen.add(item.id);
+          items.push(item);
+        }
       }
     }
     if (fs.existsSync(this.filePath("findings"))) {
-      const ids = new Set(items.map((x) => x.id));
-      items.push(...this.readJson(this.filePath("findings")).filter((x) => !ids.has(x.id)));
+      items.push(...this.readJson(this.filePath("findings")).filter((x) => !seen.has(x.id)));
     }
     return items;
   }
@@ -157,26 +382,62 @@ class Store {
   persist(name) {
     if (name === "findings") return this.persistFindings();
     if (name === "hosts") return this.persistHosts();
+    if (name === "requests") return this.persistRequests();
     this.atomicWrite(this.filePath(name), JSON.stringify(this.cache.get(name) ?? [], null, 2));
   }
-  /** Directory for one finding, per SRS v3 §3.3. */
-  findingFile(f, assessments) {
-    const a = f.assessmentId ? assessments.get(f.assessmentId) : void 0;
+  persistRequests() {
+    const requests = this.cache.get("requests") ?? [];
+    const root = this.requestsRoot();
+    const expected = /* @__PURE__ */ new Set();
+    for (const r of requests) {
+      let file = path.join(root, `${safeSeg(r.projectCode || r.id)}.json`);
+      if (expected.has(file)) file = path.join(root, `${safeSeg(r.projectCode || "request")}-${r.id}.json`);
+      expected.add(file);
+      this.atomicWrite(file, JSON.stringify(toPaRequestFile(r), null, 2));
+    }
+    for (const dir of /* @__PURE__ */ new Set([root, path.join(this.settings.dataDir, "requests")])) {
+      for (const file of walkJsonFiles(dir)) {
+        if (!expected.has(file) && this.isPortalRecordFile(file)) fs.rmSync(file);
+      }
+    }
+    fs.rmSync(this.filePath("requests"), { force: true });
+  }
+  /**
+   * Context directory (v6.6.14): everything belonging to one working context
+   * lives together — findings.json, evidence/ (POC) and generated reports —
+   * so the tree is browsable from SharePoint:
+   *   <findings-root>/<timeframe>/<projectCode | application | assessment name>/
+   * Adhoc contexts prefer the project code; annual/quarterly the application;
+   * unmapped scanner imports fall back to the assessment name.
+   */
+  contextDir(a, fallbackApplicationId) {
     const category = a ? a.category || categoryOfType(a.type) : "web";
+    const storageBucket = category === "internal-external" ? a?.type === "External VA" ? "external" : "internal" : category;
     const timeframe = a?.timeframe || "adhoc";
-    const base = path.join(this.settings.dataDir, FINDINGS_DIRS[category], timeframe);
-    let bucket;
+    let name = "";
     if (timeframe === "adhoc") {
       const req = a?.requestId ? this.get("requests", a.requestId) : void 0;
-      bucket = safeSeg(req?.projectCode || a?.requestId || a?.id || "unassigned");
-    } else {
-      const appRec = f.applicationId ? this.get("applications", f.applicationId) : void 0;
-      bucket = safeSeg(appRec?.name || "unassigned");
+      name = req?.projectCode || "";
     }
-    if (category === "host" && timeframe === "adhoc") {
-      return path.join(base, bucket, safeSeg(f.hostId), "findings.json");
+    const appId = a?.applicationId || fallbackApplicationId;
+    if (!name && appId) name = this.get("applications", appId)?.name ?? "";
+    if (!name) name = a?.name || "";
+    return path.join(
+      this.findingsRoot(storageBucket),
+      timeframe,
+      safeSeg(name || "unassigned")
+    );
+  }
+  /** Directory for one finding, per SRS v3 §3.3 (+ v6.6.14 context layout). */
+  findingFile(f, assessments) {
+    const a = f.assessmentId ? assessments.get(f.assessmentId) : void 0;
+    const dir = this.contextDir(a, f.applicationId);
+    const category = a ? a.category || categoryOfType(a.type) : "web";
+    if (category === "host" && (a?.timeframe || "adhoc") === "adhoc") {
+      const host = f.hostId ? this.get("hosts", f.hostId) : void 0;
+      return path.join(dir, safeSeg(host?.ip || f.hostId), "findings.json");
     }
-    return path.join(base, bucket, "findings.json");
+    return path.join(dir, "findings.json");
   }
   persistFindings() {
     const findings = this.cache.get("findings") ?? [];
@@ -187,9 +448,9 @@ class Store {
       if (!byFile.has(file)) byFile.set(file, []);
       byFile.get(file).push(f);
     }
-    for (const dir of Object.values(FINDINGS_DIRS)) {
-      for (const file of walkJsonFiles(path.join(this.settings.dataDir, dir))) {
-        if (!byFile.has(file)) fs.rmSync(file);
+    for (const root of this.allFindingsRoots()) {
+      for (const file of walkJsonFiles(root)) {
+        if (!byFile.has(file) && this.isPortalRecordFile(file)) fs.rmSync(file);
       }
     }
     for (const [file, group] of byFile) {
@@ -270,6 +531,16 @@ class Store {
     this.cache.set(
       name,
       this.list(name).filter((x) => x.id !== id)
+    );
+    this.persist(name);
+  }
+  /** Bulk removal with a single persist — the on-disk tree is rewritten once. */
+  removeMany(name, ids) {
+    if (ids.length === 0) return;
+    const gone = new Set(ids);
+    this.cache.set(
+      name,
+      this.list(name).filter((x) => !gone.has(x.id))
     );
     this.persist(name);
   }
@@ -424,20 +695,28 @@ function parseNessusXml(xml) {
     const prop = (n) => tags.find((t) => t["@_name"] === n)?.["#text"] ?? "";
     const ip = String(prop("host-ip") || host["@_name"] || "");
     const hostname = String(prop("host-fqdn") || prop("netbios-name") || host["@_name"] || ip);
+    const os2 = String(prop("operating-system") || prop("os") || "");
     for (const item of asArray(host.ReportItem)) {
       const cvss = parseFloat(item.cvss3_base_score ?? item.cvss_base_score ?? "0") || 0;
+      const checkName = String(item["cm:compliance-check-name"] ?? "");
+      const actualValue = String(item["cm:compliance-actual-value"] ?? "");
+      const pluginName = String(item["@_pluginName"] ?? item.plugin_name ?? "Unknown plugin");
       rows.push({
         ip,
         hostname,
+        os: os2,
         port: String(item["@_port"] ?? "0"),
         pluginId: String(item["@_pluginID"] ?? ""),
-        name: String(item["@_pluginName"] ?? item.plugin_name ?? "Unknown plugin"),
+        name: checkName || pluginName,
+        pluginName,
         cve: asArray(item.cve).map(String).join(", "),
         cvss,
         severity: NESSUS_SEVERITY[String(item["@_severity"] ?? "0")] ?? "Info",
-        description: String(item.description ?? item.synopsis ?? ""),
-        solution: String(item.solution ?? ""),
-        evidence: String(item.plugin_output ?? "")
+        description: String(item["cm:compliance-info"] ?? item.description ?? item.synopsis ?? ""),
+        solution: String(item["cm:compliance-solution"] ?? item.solution ?? ""),
+        evidence: actualValue ? `Actual value:
+${actualValue}` : String(item["cm:compliance-output"] ?? item.plugin_output ?? ""),
+        complianceResult: String(item["cm:compliance-result"] ?? "").toUpperCase()
       });
     }
   }
@@ -497,15 +776,18 @@ function parseNessusCsv(text) {
   return rows.slice(1).map((r) => ({
     ip: cell(r, idx.host),
     hostname: cell(r, idx.host),
+    os: "",
     port: cell(r, idx.port) || "0",
     pluginId: cell(r, idx.pluginId),
     name: cell(r, idx.name) || "Unknown plugin",
+    pluginName: cell(r, idx.name) || "Unknown plugin",
     cve: cell(r, idx.cve),
     cvss: parseFloat(cell(r, idx.cvss)) || 0,
     severity: RISK_SEVERITY[cell(r, idx.risk).toLowerCase()] ?? "Info",
     description: cell(r, idx.description),
     solution: cell(r, idx.solution),
-    evidence: cell(r, idx.output)
+    evidence: cell(r, idx.output),
+    complianceResult: ""
   }));
 }
 function importNessusFile(store, assessmentId, filePath) {
@@ -550,7 +832,7 @@ function importNessusContent(store, assessmentId, raw, sourceName, isCsv) {
           environment: "Production",
           exposure: assessment.type === "External VA" ? "external" : "internal",
           applicationId: assessment.applicationId,
-          os: "",
+          os: row.os,
           status: "Pending",
           notes: `Auto-created by Nessus import on ${today}`,
           sourceFile
@@ -560,13 +842,17 @@ function importNessusContent(store, assessmentId, raw, sourceName, isCsv) {
         result.hostsCreated++;
       }
       attachedHostIds.add(host.id);
+      if (row.os && !host.os) {
+        host = store.update("hosts", host.id, { os: row.os });
+        hostsById.set(host.id, host);
+      }
       const fingerprint = fingerprintOf({
         hostId: "",
         ip: row.ip,
         port: row.port,
         pluginId: row.pluginId,
         endpoint: "",
-        parameter: ""
+        parameter: row.complianceResult ? row.name : ""
       });
       if (existingInAssessment.has(fingerprint)) {
         result.duplicates++;
@@ -588,6 +874,7 @@ function importNessusContent(store, assessmentId, raw, sourceName, isCsv) {
         cwe: "",
         owasp: "",
         pluginId: row.pluginId,
+        pluginName: row.pluginName,
         endpoint: "",
         port: row.port,
         parameter: "",
@@ -595,7 +882,10 @@ function importNessusContent(store, assessmentId, raw, sourceName, isCsv) {
         evidence: row.evidence,
         attachments: [],
         recommendation: row.solution,
-        status: "Open",
+        // Compliance results map onto the finding lifecycle: PASSED checks
+        // arrive closed (shown as "Passed" in the host module), everything
+        // else is an open issue (shown as "Failed").
+        status: row.complianceResult === "PASSED" ? "Closed" : "Open",
         classification,
         fingerprint,
         projectCode: assessmentProjectCode,
@@ -605,7 +895,7 @@ function importNessusContent(store, assessmentId, raw, sourceName, isCsv) {
         firstIdentifiedDate: lifecycle?.firstIdentifiedDate ?? "",
         discoveredDate: today,
         slaDueDate: slaDueDate(row.severity, today),
-        closedDate: ""
+        closedDate: row.complianceResult === "PASSED" ? today : ""
       });
       result.imported++;
     } catch (e) {
@@ -1378,7 +1668,8 @@ function prepareFinding(store, data, existing) {
 function evidenceAddFile(store, findingId, srcPaths) {
   const finding = store.get("findings", findingId);
   if (!finding) throw new Error("Finding not found");
-  const dir = store.resolve(path.join("evidence", findingId));
+  const assessment = finding.assessmentId ? store.get("assessments", finding.assessmentId) : void 0;
+  const dir = path.join(store.contextDir(assessment, finding.applicationId), "evidence", findingId);
   fs.mkdirSync(dir, { recursive: true });
   const attachments = [...finding.attachments ?? []];
   for (const src of srcPaths) {
@@ -1391,7 +1682,7 @@ function evidenceAddFile(store, findingId, srcPaths) {
     attachments.push({
       id,
       filename,
-      path: path.join("evidence", findingId, stored),
+      path: store.storablePath(path.join(dir, stored)),
       size: fs.statSync(src).size,
       addedAt: (/* @__PURE__ */ new Date()).toISOString()
     });
@@ -1520,6 +1811,95 @@ function registerIpc(store, onSettingsChanged) {
     });
     return result;
   });
+  handle("assessments:removeMany", (_e, ids) => {
+    const idSet = new Set(ids);
+    const doomedFindings = store.list("findings").filter((f) => idSet.has(f.assessmentId));
+    for (const f of doomedFindings) {
+      fs.rmSync(store.resolve(path.join("evidence", f.id)), { recursive: true, force: true });
+    }
+    store.removeMany(
+      "findings",
+      doomedFindings.map((f) => f.id)
+    );
+    const removedAssessments = store.list("assessments").filter((a) => idSet.has(a.id));
+    const candidateHosts = new Set(removedAssessments.flatMap((a) => a.hostIds ?? []));
+    const stillUsed = /* @__PURE__ */ new Set([
+      ...store.list("assessments").filter((a) => !idSet.has(a.id)).flatMap((a) => a.hostIds ?? []),
+      ...store.list("findings").map((f) => f.hostId)
+    ]);
+    const doomedHosts = [...candidateHosts].filter((h) => h && !stillUsed.has(h));
+    store.removeMany("hosts", doomedHosts);
+    store.removeMany("assessments", ids);
+    logger.write({
+      category: "Assessment",
+      module: "ipc",
+      source: "assessments:removeMany",
+      action: "bulk remove",
+      message: `Removed ${ids.length} assessment(s), ${doomedFindings.length} finding(s), ${doomedHosts.length} host(s) (cascade)`
+    });
+    return { assessments: ids.length, findings: doomedFindings.length, hosts: doomedHosts.length };
+  });
+  handle("nessus:importFiles", async (_e, category) => {
+    const res = await electron.dialog.showOpenDialog({
+      title: "Select Nessus / CSV export(s)",
+      filters: [
+        { name: "Nessus / CSV export", extensions: ["nessus", "xml", "csv"] },
+        { name: "Nessus export", extensions: ["nessus", "xml"] },
+        { name: "CSV", extensions: ["csv"] }
+      ],
+      properties: ["openFile", "multiSelections"]
+    });
+    if (res.canceled || res.filePaths.length === 0) return null;
+    const summary = {
+      created: 0,
+      imported: 0,
+      duplicates: 0,
+      hostsCreated: 0,
+      failures: []
+    };
+    for (const filePath of res.filePaths) {
+      const fileName = path.basename(filePath);
+      try {
+        const type = category === "internal-external" ? /external/i.test(fileName) ? "External VA" : "Internal VA" : CATEGORY_TYPES[category][0];
+        const assessment = store.create(
+          "assessments",
+          prepareAssessment({
+            name: fileName.replace(/\.(nessus|xml|csv)$/i, ""),
+            applicationId: "",
+            requestId: "",
+            type,
+            category,
+            timeframe: "adhoc",
+            status: "Completed",
+            startDate: "",
+            endDate: "",
+            hostIds: [],
+            tester: "",
+            baselineAssessmentId: "",
+            notes: `Manually imported from ${fileName}`
+          })
+        );
+        const r = importNessusFile(store, assessment.id, filePath);
+        summary.created++;
+        summary.imported += r.imported;
+        summary.duplicates += r.duplicates;
+        summary.hostsCreated += r.hostsCreated;
+        if (r.errors.length) summary.failures.push(`${fileName}: ${r.errors.slice(0, 2).join("; ")}`);
+      } catch (err) {
+        summary.failures.push(`${fileName}: ${err instanceof Error ? err.message : err}`);
+      }
+    }
+    logger.write({
+      category: "Import / Export",
+      module: "ipc",
+      source: "nessus:importFiles",
+      action: "import scan files",
+      status: summary.failures.length ? "partial" : "ok",
+      message: `Imported ${summary.created}/${res.filePaths.length} file(s) into ${category}: ${summary.imported} finding(s), ${summary.duplicates} duplicate(s), ${summary.hostsCreated} host(s)`,
+      failureReason: summary.failures.slice(0, 3).join(" · ")
+    });
+    return summary;
+  });
   handle("scanner:test", async (_e, conn) => {
     const result = await testConnection(conn);
     logger.write({
@@ -1588,9 +1968,15 @@ function registerIpc(store, onSettingsChanged) {
     });
   });
   handle("report:generate", async (_e, req) => {
+    const assessment = req.assessmentId ? store.get("assessments", req.assessmentId) : void 0;
+    const baseDir = assessment ? store.contextDir(assessment) : store.getSettings().reportsDir;
+    try {
+      fs.mkdirSync(baseDir, { recursive: true });
+    } catch {
+    }
     const res = await electron.dialog.showSaveDialog({
       title: "Save report",
-      defaultPath: `${store.getSettings().reportsDir}/${req.suggestedName}.${req.format}`,
+      defaultPath: path.join(baseDir, `${req.suggestedName}.${req.format}`),
       filters: [{ name: req.format.toUpperCase(), extensions: [req.format] }]
     });
     if (res.canceled || !res.filePath) return null;
@@ -1759,7 +2145,7 @@ class InboxWatcher {
     const dir = this.inboxDir;
     let entries = [];
     try {
-      entries = fs.readdirSync(dir).filter((f) => f.endsWith(".json") || f.endsWith(".txt"));
+      entries = fs.readdirSync(dir).filter((f) => /^vapt.*\.(json|txt)$/i.test(f));
     } catch {
       return;
     }
@@ -1808,18 +2194,30 @@ class InboxWatcher {
     if (file.endsWith(".json")) {
       const j = JSON.parse(raw);
       data = {
-        title: j.subject || j.title || "Untitled request",
-        projectCode: j.projectCode || "",
-        requestedBy: j.name || j.requestedBy || "",
-        requesterEmail: j.email || "",
-        department: j.department || "",
-        systemName: j.systemName || j.system || "",
-        targetUatDate: normalizeDate(j.targetUatCompletion || j.targetUatDate),
-        goLiveDate: normalizeDate(j.goLiveDate || j.goLive),
-        purpose: j.purpose || "",
-        scope: j.scope || "",
-        notes: j.notes || `Imported from Power Automate inbox (${path.basename(file)})`
+        title: cleanPaText(j.subject || j.title || j.systemName || j.system) || "Untitled request",
+        // `requestNumber` is the native Power Automate export field (VAPT-YYYYMMDD-HHMMSS).
+        projectCode: j.projectCode || j.requestNumber || "",
+        requestedBy: cleanPaText(j.name || j.requestedBy),
+        requesterEmail: cleanPaText(j.email || j.emailAddress),
+        department: cleanPaText(j.department || j.departmentDivision),
+        systemName: cleanPaText(j.systemName || j.system),
+        targetUatDate: normalizeDate(
+          j.targetUatCompletion || j.targetUatDate || j.targetDateOfUatCompletionServerReadiness
+        ),
+        goLiveDate: normalizeDate(j.goLiveDate || j.goLive || j.targetDateToGoLive),
+        purpose: cleanPaText(j.purpose),
+        scope: cleanPaText(j.scope),
+        // Notes stay empty for the analyst — every export field is shown in
+        // the request detail view, so no auto-summary is duplicated here.
+        notes: j.notes || "",
+        // Keep the verbatim export so the stored request file round-trips
+        // the Power Automate schema exactly (v6.6.6, see pa-format.ts).
+        source: j
       };
+      const assessmentType = assessmentTypeOf(j.typeOfSystem);
+      if (assessmentType) data.assessmentType = assessmentType;
+      const status = requestStatusOf(j.approvalStatus);
+      if (status) data.status = status;
     } else {
       const [subject, ...rest] = raw.split("\n");
       data = {
@@ -1841,12 +2239,68 @@ class InboxWatcher {
     return true;
   }
 }
-function normalizeDate(v) {
-  if (!v) return "";
-  const dmy = v.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  if (dmy) return `${dmy[3]}-${dmy[2].padStart(2, "0")}-${dmy[1].padStart(2, "0")}`;
-  const iso = v.trim().match(/^\d{4}-\d{2}-\d{2}/);
-  return iso ? iso[0] : "";
+class RequestsWatcher {
+  constructor(store, onChange) {
+    this.store = store;
+    this.onChange = onChange;
+    this.watcher = null;
+    this.timer = null;
+    this.scheduled = null;
+    this.lastSig = "";
+  }
+  get dir() {
+    return this.store.requestsDirPath();
+  }
+  /** Cheap change detector: file names + mtimes + sizes. */
+  signature() {
+    try {
+      return fs.readdirSync(this.dir).filter((f) => f.endsWith(".json")).sort().map((f) => {
+        const st = fs.statSync(path.join(this.dir, f));
+        return `${f}:${st.mtimeMs}:${st.size}`;
+      }).join("|");
+    } catch {
+      return "";
+    }
+  }
+  start() {
+    this.stop();
+    try {
+      fs.mkdirSync(this.dir, { recursive: true });
+    } catch {
+    }
+    this.lastSig = this.signature();
+    try {
+      this.watcher = fs.watch(this.dir, () => this.schedule());
+    } catch {
+    }
+    this.timer = setInterval(() => this.check(), 3e4);
+  }
+  stop() {
+    this.watcher?.close();
+    this.watcher = null;
+    if (this.timer) clearInterval(this.timer);
+    this.timer = null;
+    if (this.scheduled) clearTimeout(this.scheduled);
+    this.scheduled = null;
+  }
+  schedule() {
+    if (this.scheduled) clearTimeout(this.scheduled);
+    this.scheduled = setTimeout(() => this.check(), 500);
+  }
+  check() {
+    const sig = this.signature();
+    if (sig === this.lastSig) return;
+    this.lastSig = sig;
+    this.store.invalidate("requests");
+    this.onChange();
+    logger.write({
+      category: "Import / Export",
+      module: "inbox",
+      source: "inbox.ts",
+      action: "requests folder changed",
+      message: "Requests folder changed on disk — reloaded live"
+    });
+  }
 }
 electron.app.setName("tvm-portal");
 function createWindow() {
@@ -1855,6 +2309,8 @@ function createWindow() {
     height: 900,
     minWidth: 1024,
     minHeight: 640,
+    show: false,
+    // shown maximized below — avoids a small-window flash
     title: "TVM Portal",
     backgroundColor: "#0f172a",
     webPreferences: {
@@ -1864,6 +2320,8 @@ function createWindow() {
       sandbox: false
     }
   });
+  win.maximize();
+  win.show();
   win.webContents.setWindowOpenHandler(({ url }) => {
     electron.shell.openExternal(url);
     return { action: "deny" };
@@ -1906,14 +2364,20 @@ electron.app.whenReady().then(() => {
   const rotateTimer = setInterval(() => logger.rotate(), 24 * 3600 * 1e3);
   const notifyRenderers = () => electron.BrowserWindow.getAllWindows().forEach((w) => w.webContents.send("data-changed"));
   const inbox = new InboxWatcher(store, notifyRenderers);
-  registerIpc(store, () => inbox.start());
+  const requestsWatcher = new RequestsWatcher(store, notifyRenderers);
+  registerIpc(store, () => {
+    inbox.start();
+    requestsWatcher.start();
+  });
   inbox.start();
+  requestsWatcher.start();
   createWindow();
   electron.app.on("activate", () => {
     if (electron.BrowserWindow.getAllWindows().length === 0) createWindow();
   });
   electron.app.on("will-quit", () => {
     inbox.stop();
+    requestsWatcher.stop();
     clearInterval(rotateTimer);
     logger.write({ category: "System", module: "main", source: "index.ts", action: "app-quit", message: "TVM Portal shutting down" });
   });

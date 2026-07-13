@@ -13,6 +13,8 @@ const api = {
 
   importNessus: (assessmentId: string, kind: 'nessus' | 'csv') =>
     ipcRenderer.invoke('nessus:import', assessmentId, kind),
+  importNessusFiles: (category: string) => ipcRenderer.invoke('nessus:importFiles', category),
+  assessmentsRemoveMany: (ids: string[]) => ipcRenderer.invoke('assessments:removeMany', ids),
   scannerTest: (conn: unknown) => ipcRenderer.invoke('scanner:test', conn),
   scannerListScans: (connId: string, includePolicy?: boolean) =>
     ipcRenderer.invoke('scanner:listScans', connId, includePolicy),

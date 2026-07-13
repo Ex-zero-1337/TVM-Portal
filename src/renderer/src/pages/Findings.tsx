@@ -5,7 +5,14 @@ import { isOverdue, slaDaysRemaining } from '@shared/sla'
 import { api } from '../api'
 import { useDb } from '../data'
 import { CrudPage } from '../components/CrudPage'
-import { Modal, SeverityBadge, StatusBadge } from '../components/ui'
+import { DetailField, DetailSection, Modal, SeverityBadge, StatusBadge } from '../components/ui'
+
+/** Days a finding has been (or was) open: discovery → closure, or → today while open. */
+function agingDays(f: Finding): number {
+  if (!f.discoveredDate) return 0
+  const end = f.closedDate ? new Date(f.closedDate) : new Date()
+  return Math.max(0, Math.round((end.getTime() - new Date(f.discoveredDate).getTime()) / 86_400_000))
+}
 
 function humanSize(n: number): string {
   if (n < 1024) return `${n} B`
@@ -36,13 +43,12 @@ function Attachments({ finding }: { finding: Finding }) {
 
   return (
     <>
-      <h3>Evidence Attachments</h3>
-      {attachments.length === 0 && <p className="muted">No attachments.</p>}
+      {attachments.length === 0 && <p className="muted">No POC attached.</p>}
       <div className="attach-list">
         {attachments.map((a) => (
           <div key={a.id} className="attach-row">
             <button className="link" onClick={() => api.evidenceOpen(a.path)} title="Open">
-              📎 {a.filename}
+              {a.filename}
             </button>
             <span className="muted">{humanSize(a.size)}</span>
             <button className="icon-btn" onClick={() => remove(a.id)} title="Remove">
@@ -52,85 +58,142 @@ function Attachments({ finding }: { finding: Finding }) {
         ))}
       </div>
       <button onClick={add} disabled={busy}>
-        {busy ? 'Attaching…' : '➕ Attach evidence (png/jpg/jpeg/gif/txt/zip)'}
+        {busy ? 'Attaching…' : '+ Attach POC (png/jpg/jpeg/gif/txt/zip)'}
       </button>
     </>
   )
 }
 
+/**
+ * Structured finding detail (v6.6.8): same sectioned layout as the request
+ * detail view. Host findings additionally show the affected host's details
+ * (IP, hostname, OS, environment, exposure, source scan) and a Passed/Failed
+ * result derived from the finding status.
+ */
 function FindingDetail({ finding, onClose, onEdit }: { finding: Finding; onClose: () => void; onEdit: () => void }) {
   const db = useDb()
   const f = db.findings.find((x) => x.id === finding.id) ?? finding
   const overdue = isOverdue(f)
   const days = f.slaDueDate ? slaDaysRemaining(f) : null
-
-  const Section = ({ label, text }: { label: string; text: string }) =>
-    text ? (
-      <>
-        <h3>{label}</h3>
-        <p className="prewrap">{text}</p>
-      </>
-    ) : null
+  const host = f.hostId ? db.hosts.find((h) => h.id === f.hostId) : undefined
+  const assessment = db.assessments.find((a) => a.id === f.assessmentId)
+  const category = assessment ? assessment.category || categoryOfType(assessment.type) : undefined
+  // Host/VA result: the check failed while the issue is present, passes once resolved.
+  const passed = f.status === 'Resolved' || f.status === 'Closed'
+  const firstIdentified =
+    f.classification === 'Existing' && f.firstIdentifiedPeriod
+      ? [f.firstIdentifiedAssessmentType, f.firstIdentifiedPeriod, f.firstIdentifiedProjectCode]
+          .filter(Boolean)
+          .join(' · ')
+      : ''
 
   return (
-    <Modal title={f.title} onClose={onClose} wide>
-      <div className="detail-grid">
-        <div>
-          <b>Severity:</b> <SeverityBadge value={f.severity} /> {f.cvss ? `(CVSS ${f.cvss})` : ''}
-        </div>
-        <div>
-          <b>Status:</b> <StatusBadge value={f.status} />
-        </div>
-        <div>
-          <b>Classification:</b> <StatusBadge value={f.classification} />{' '}
-          {f.classification === 'Existing' && f.firstIdentifiedPeriod && (
-            <span className="muted">
-              • First Identified: {f.firstIdentifiedAssessmentType ? `${f.firstIdentifiedAssessmentType} · ` : ''}
-              {f.firstIdentifiedPeriod}
-              {f.firstIdentifiedProjectCode ? ` · ${f.firstIdentifiedProjectCode}` : ''}
-            </span>
+    <Modal title="Finding Details" onClose={onClose} wide>
+      <div className="req-detail">
+        <header className="req-detail-head">
+          <div>
+            {f.projectCode && <code className="req-detail-code">{f.projectCode}</code>}
+            <h3>{f.title}</h3>
+          </div>
+          <div className="req-detail-badges">
+            <SeverityBadge value={f.severity} />
+            <StatusBadge value={f.status} />
+            {category === 'host' && (
+              <span className={`req-chip ${passed ? 'req-chip-ok' : 'req-chip-fail'}`}>
+                {passed ? 'Passed' : 'Failed'}
+              </span>
+            )}
+          </div>
+        </header>
+
+        <DetailSection title="Overview">
+          <DetailField label="Severity" value={`${f.severity}${f.cvss ? ` (CVSS ${f.cvss})` : ''}`} />
+          <DetailField label="Classification" value={f.classification} />
+          <DetailField label="First Identified" value={firstIdentified} />
+          <DetailField label="Assessment" value={db.assessmentName(f.assessmentId)} />
+          <DetailField label="Application" value={db.appName(f.applicationId) || undefined} />
+          <DetailField label="Project Code" value={f.projectCode} />
+        </DetailSection>
+
+        <DetailSection title="Affected Asset">
+          <DetailField
+            label="Asset"
+            value={f.affectedAsset || (f.hostId ? `${db.hostLabel(f.hostId)}${f.port ? `:${f.port}` : ''}` : '')}
+          />
+          <DetailField label="Endpoint / URL" value={f.endpoint} />
+          <DetailField label="Parameter" value={f.parameter} />
+          <DetailField label="Port" value={f.port && f.port !== '0' ? f.port : ''} />
+          {host && (
+            <>
+              <DetailField label="IP Address" value={host.ip} />
+              <DetailField label="Hostname" value={host.hostname} />
+              <DetailField label="Operating System" value={host.os || 'Unknown (not reported by scan)'} />
+              <DetailField label="Environment" value={host.environment} />
+              <DetailField label="Exposure" value={<StatusBadge value={host.exposure} />} />
+              <DetailField label="Source Scan" value={host.sourceFile || 'Manual'} />
+            </>
           )}
-        </div>
-        <div>
-          <b>Project Code:</b> {f.projectCode || '—'}
-        </div>
-        <div>
-          <b>Application:</b> {db.appName(f.applicationId)}
-        </div>
-        <div>
-          <b>Affected Asset:</b> {f.affectedAsset || (f.hostId ? `${db.hostLabel(f.hostId)}${f.port ? `:${f.port}` : ''}` : '—')}
-        </div>
-        <div>
-          <b>Assessment:</b> {db.assessmentName(f.assessmentId)}
-        </div>
-        <div>
-          <b>Endpoint:</b> {f.endpoint || '—'} {f.parameter ? `(param: ${f.parameter})` : ''}
-        </div>
-        <div>
-          <b>CVE / CWE / OWASP:</b> {[f.cve, f.cwe, f.owasp].filter(Boolean).join(' · ') || '—'}
-        </div>
-        <div>
-          <b>Discovered:</b> {f.discoveredDate || '—'}
-        </div>
-        <div>
-          <b>SLA due:</b> {f.slaDueDate || '—'}{' '}
-          {days !== null && (
-            <span className={overdue ? 'sla-overdue' : 'sla-ok'}>
-              {overdue ? `${-days} day(s) overdue` : `${days} day(s) left`}
-            </span>
-          )}
-        </div>
+        </DetailSection>
+
+        {(f.cve || f.cwe || f.owasp || f.pluginId || f.pluginName) && (
+          <DetailSection title="References">
+            <DetailField label="CVE" value={f.cve} />
+            <DetailField label="CWE" value={f.cwe} />
+            <DetailField label="OWASP" value={f.owasp} />
+            <DetailField label="Plugin" value={f.pluginName} />
+            <DetailField label="Plugin ID" value={f.pluginId} />
+          </DetailSection>
+        )}
+
+        <DetailSection title="Timeline & SLA">
+          <DetailField label="Discovered" value={f.discoveredDate} />
+          <DetailField
+            label="SLA Due"
+            value={
+              f.slaDueDate ? (
+                <>
+                  {f.slaDueDate}{' '}
+                  {days !== null && (
+                    <span className={overdue ? 'sla-overdue' : 'sla-ok'}>
+                      {overdue ? `${-days} day(s) overdue` : `${days} day(s) left`}
+                    </span>
+                  )}
+                </>
+              ) : (
+                ''
+              )
+            }
+          />
+          <DetailField label="Closed" value={f.closedDate} />
+        </DetailSection>
+
+        {f.description && (
+          <DetailSection title="Description">
+            <DetailField label="" value={f.description} wide />
+          </DetailSection>
+        )}
+
+        <DetailSection title="Proof of Concept (POC)">
+          <DetailField label="" value={f.evidence} wide />
+          <div className="req-field wide">
+            <Attachments finding={f} />
+          </div>
+        </DetailSection>
+
+        {f.recommendation && (
+          <DetailSection title="Recommendation">
+            <DetailField label="" value={f.recommendation} wide />
+          </DetailSection>
+        )}
+
+        <p className="muted">Fingerprint: {f.fingerprint?.slice(0, 24)}…</p>
       </div>
-      <Section label="Description" text={f.description} />
-      <Section label="Evidence (notes)" text={f.evidence} />
-      <Attachments finding={f} />
-      <Section label="Recommendation" text={f.recommendation} />
-      <p className="muted">Fingerprint: {f.fingerprint?.slice(0, 24)}…</p>
+
       <div className="modal-actions">
         <span className="spacer" />
-        <button onClick={onEdit}>Edit</button>
-        <button className="primary" onClick={onClose}>
-          Close
+        <button onClick={onClose}>Close</button>
+        <button className="primary" onClick={onEdit}>
+          Edit Finding
         </button>
       </div>
     </Modal>
@@ -409,14 +472,39 @@ export function FindingsPage({ category }: { category?: AssessmentCategory }) {
             sortValue: (r) => SEVERITIES.indexOf(r.severity),
             render: (r) => <SeverityBadge value={r.severity} />
           },
-          { key: 'cvss', label: 'CVSS' },
+          // Host module runs compliance audits — CVSS does not apply there.
+          ...(category === 'host' ? [] : [{ key: 'cvss', label: 'CVSS' }]),
           {
             key: 'affectedAsset',
             label: 'Affected Asset',
             render: (r) => r.affectedAsset || (r.hostId ? db.hostLabel(r.hostId) : '—')
           },
-          { key: 'status', label: 'Status', render: (r) => <StatusBadge value={r.status} /> },
-          { key: 'classification', label: 'Class', render: (r) => <StatusBadge value={r.classification} /> },
+          {
+            key: 'status',
+            label: 'Status',
+            // Host module: compliance-style result — Failed while the issue
+            // is open, Passed once resolved/closed (v6.6.9).
+            render: (r) =>
+              category === 'host' ? (
+                <span
+                  className={`req-chip ${r.status === 'Resolved' || r.status === 'Closed' ? 'req-chip-ok' : 'req-chip-fail'}`}
+                >
+                  {r.status === 'Resolved' || r.status === 'Closed' ? 'Passed' : 'Failed'}
+                </span>
+              ) : (
+                <StatusBadge value={r.status} />
+              )
+          },
+          {
+            key: 'aging',
+            label: 'Aging',
+            sortValue: (r) => agingDays(r),
+            render: (r) => (
+              <span className={isOverdue(r) ? 'sla-overdue' : ''}>
+                {agingDays(r)}d{isOverdue(r) ? ' ⚠' : ''}
+              </span>
+            )
+          },
           {
             key: 'slaDueDate',
             label: 'SLA Due',

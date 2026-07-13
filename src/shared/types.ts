@@ -1,5 +1,6 @@
 export type RequestStatus =
   | 'New'
+  | 'Acknowledge'
   | 'Pending Approval'
   | 'Approved'
   | 'Scheduled'
@@ -45,6 +46,12 @@ export interface VaptRequest extends BaseEntity {
   goLiveDate: string
   purpose: string
   notes: string
+  /**
+   * Verbatim Power Automate export fields (v6.6.6) — kept so the stored
+   * request file round-trips the flow's schema exactly (doesTheSystem,
+   * attachments, approvalStatus, reviewerName, …).
+   */
+  source?: Record<string, unknown>
 }
 
 export interface Application extends BaseEntity {
@@ -114,6 +121,8 @@ export interface Finding extends BaseEntity {
   cwe: string
   owasp: string
   pluginId: string
+  /** Scanner plugin name (v6.6.10) — for compliance checks the title carries the check name and this keeps the family, e.g. "Unix Compliance Checks". */
+  pluginName?: string
   endpoint: string
   port: string
   parameter: string
@@ -185,6 +194,15 @@ export const APPEARANCES: Appearance[] = ['light', 'dark', 'system']
 export interface Settings {
   dataDir: string
   reportsDir: string
+  /**
+   * Optional per-area storage locations (v6.6.3). Empty/absent = the default
+   * folder under dataDir (requests/, web-findings/, internal-findings/,
+   * external-findings/). Changing one migrates the stored files there.
+   */
+  requestsDir?: string
+  webFindingsDir?: string
+  internalFindingsDir?: string
+  externalFindingsDir?: string
   scanners: ScannerConnection[]
   appearance: Appearance
   /** Log retention in days (SRS v6.3 §12); older daily files are deleted. */
@@ -300,7 +318,7 @@ export interface ComparisonResult {
 }
 
 export const REQUEST_STATUSES: RequestStatus[] = [
-  'New', 'Pending Approval', 'Approved', 'Scheduled', 'In Progress', 'Reporting', 'Delivered', 'Closed'
+  'New', 'Acknowledge', 'Pending Approval', 'Approved', 'Scheduled', 'In Progress', 'Reporting', 'Delivered', 'Closed'
 ]
 export const ASSESSMENT_TYPES: AssessmentType[] = ['Web', 'API', 'Mobile', 'Internal VA', 'External VA', 'Host VA', 'Retest']
 export const TIMEFRAMES: Timeframe[] = ['annual', 'quarterly', 'adhoc']

@@ -6,6 +6,8 @@ import path from 'path'
 import JSZip from 'jszip'
 import type {
   Assessment,
+  AssessmentCategory,
+  AssessmentType,
   CollectionName,
   ComparisonResult,
   EvidenceAttachment,
@@ -18,7 +20,7 @@ import type {
   Settings,
   VaptRequest
 } from '../shared/types'
-import { EVIDENCE_EXTENSIONS, categoryOfType, generateProjectCode, parseProjectCode } from '../shared/types'
+import { CATEGORY_TYPES, EVIDENCE_EXTENSIONS, categoryOfType, generateProjectCode, parseProjectCode } from '../shared/types'
 import { isFindingOpen, slaDueDate } from '../shared/sla'
 import { Store } from './store'
 import { classifyFinding, classifyLifecycle, fingerprintOf } from './fingerprint'
@@ -179,7 +181,10 @@ function prepareFinding(store: Store, data: Partial<Finding>, existing?: Finding
 export function evidenceAddFile(store: Store, findingId: string, srcPaths: string[]): Finding {
   const finding = store.get('findings', findingId)
   if (!finding) throw new Error('Finding not found')
-  const dir = store.resolve(path.join('evidence', findingId))
+  // POC lives beside the finding's data (v6.6.14): <context dir>/evidence/<findingId>/
+  // so the whole context is browsable as one folder from SharePoint.
+  const assessment = finding.assessmentId ? store.get('assessments', finding.assessmentId) : undefined
+  const dir = path.join(store.contextDir(assessment, finding.applicationId), 'evidence', findingId)
   fs.mkdirSync(dir, { recursive: true })
   const attachments: EvidenceAttachment[] = [...(finding.attachments ?? [])]
   for (const src of srcPaths) {
@@ -192,7 +197,7 @@ export function evidenceAddFile(store: Store, findingId: string, srcPaths: strin
     attachments.push({
       id,
       filename,
-      path: path.join('evidence', findingId, stored),
+      path: store.storablePath(path.join(dir, stored)),
       size: fs.statSync(src).size,
       addedAt: new Date().toISOString()
     })
@@ -333,6 +338,114 @@ export function registerIpc(store: Store, onSettingsChanged?: () => void): void 
     return result
   })
 
+  // Bulk assessment removal with cascade (v6.6.12): deletes the assessments,
+  // their findings (finding trees on disk are rewritten without them), their
+  // findings' evidence folders, and hosts that no longer belong to any
+  // remaining assessment or finding — so the data folder reflects the removal.
+  handle('assessments:removeMany', (_e, ids: string[]) => {
+    const idSet = new Set(ids)
+    const doomedFindings = store.list('findings').filter((f) => idSet.has(f.assessmentId))
+    for (const f of doomedFindings) {
+      fs.rmSync(store.resolve(path.join('evidence', f.id)), { recursive: true, force: true })
+    }
+    store.removeMany(
+      'findings',
+      doomedFindings.map((f) => f.id)
+    )
+    // Hosts attached to the removed assessments, unless something else still uses them.
+    const removedAssessments = store.list('assessments').filter((a) => idSet.has(a.id))
+    const candidateHosts = new Set(removedAssessments.flatMap((a) => a.hostIds ?? []))
+    const stillUsed = new Set([
+      ...store
+        .list('assessments')
+        .filter((a) => !idSet.has(a.id))
+        .flatMap((a) => a.hostIds ?? []),
+      ...store.list('findings').map((f) => f.hostId)
+    ])
+    const doomedHosts = [...candidateHosts].filter((h) => h && !stillUsed.has(h))
+    store.removeMany('hosts', doomedHosts)
+    store.removeMany('assessments', ids)
+    logger.write({
+      category: 'Assessment',
+      module: 'ipc',
+      source: 'assessments:removeMany',
+      action: 'bulk remove',
+      message: `Removed ${ids.length} assessment(s), ${doomedFindings.length} finding(s), ${doomedHosts.length} host(s) (cascade)`
+    })
+    return { assessments: ids.length, findings: doomedFindings.length, hosts: doomedHosts.length }
+  })
+
+  // Module-level manual import (v6.6.10): pick one or many Nessus/CSV files;
+  // each file becomes its own assessment, mirroring the scanner fetch flow.
+  handle('nessus:importFiles', async (_e, category: AssessmentCategory) => {
+    const res = await dialog.showOpenDialog({
+      title: 'Select Nessus / CSV export(s)',
+      filters: [
+        { name: 'Nessus / CSV export', extensions: ['nessus', 'xml', 'csv'] },
+        { name: 'Nessus export', extensions: ['nessus', 'xml'] },
+        { name: 'CSV', extensions: ['csv'] }
+      ],
+      properties: ['openFile', 'multiSelections']
+    })
+    if (res.canceled || res.filePaths.length === 0) return null
+    const summary = {
+      created: 0,
+      imported: 0,
+      duplicates: 0,
+      hostsCreated: 0,
+      failures: [] as string[]
+    }
+    for (const filePath of res.filePaths) {
+      const fileName = path.basename(filePath)
+      try {
+        // Int/Ext: the file name decides Internal vs External (no policy
+        // available on manual import); the type stays editable afterwards.
+        const type: AssessmentType =
+          category === 'internal-external'
+            ? /external/i.test(fileName)
+              ? 'External VA'
+              : 'Internal VA'
+            : CATEGORY_TYPES[category][0]
+        const assessment = store.create(
+          'assessments',
+          prepareAssessment({
+            name: fileName.replace(/\.(nessus|xml|csv)$/i, ''),
+            applicationId: '',
+            requestId: '',
+            type,
+            category,
+            timeframe: 'adhoc',
+            status: 'Completed',
+            startDate: '',
+            endDate: '',
+            hostIds: [],
+            tester: '',
+            baselineAssessmentId: '',
+            notes: `Manually imported from ${fileName}`
+          })
+        )
+        const r = importNessusFile(store, assessment.id, filePath)
+        summary.created++
+        summary.imported += r.imported
+        summary.duplicates += r.duplicates
+        summary.hostsCreated += r.hostsCreated
+        if (r.errors.length) summary.failures.push(`${fileName}: ${r.errors.slice(0, 2).join('; ')}`)
+      } catch (err) {
+        summary.failures.push(`${fileName}: ${err instanceof Error ? err.message : err}`)
+      }
+    }
+    logger.write({
+      category: 'Import / Export',
+      module: 'ipc',
+      source: 'nessus:importFiles',
+      action: 'import scan files',
+      status: summary.failures.length ? 'partial' : 'ok',
+      message: `Imported ${summary.created}/${res.filePaths.length} file(s) into ${category}: ${summary.imported} finding(s), ${summary.duplicates} duplicate(s), ${summary.hostsCreated} host(s)`,
+      failureReason: summary.failures.slice(0, 3).join(' · ')
+    })
+    return summary
+  })
+
   // --- Scanner connections (SRS v4 §5, §9)
   handle('scanner:test', async (_e, conn: ScannerConnection) => {
     const result = await testConnection(conn)
@@ -408,9 +521,19 @@ export function registerIpc(store: Store, onSettingsChanged?: () => void): void 
   })
 
   handle('report:generate', async (_e, req: Omit<ReportRequest, 'outputPath'> & { suggestedName: string }) => {
+    // Reports default into the assessment's context directory (v6.6.14) so
+    // findings, POC and reports sit together; the dialog still lets the user
+    // pick anywhere (e.g. the central reports folder).
+    const assessment = req.assessmentId ? store.get('assessments', req.assessmentId) : undefined
+    const baseDir = assessment ? store.contextDir(assessment) : store.getSettings().reportsDir
+    try {
+      fs.mkdirSync(baseDir, { recursive: true })
+    } catch {
+      /* dialog will fall back */
+    }
     const res = await dialog.showSaveDialog({
       title: 'Save report',
-      defaultPath: `${store.getSettings().reportsDir}/${req.suggestedName}.${req.format}`,
+      defaultPath: path.join(baseDir, `${req.suggestedName}.${req.format}`),
       filters: [{ name: req.format.toUpperCase(), extensions: [req.format] }]
     })
     if (res.canceled || !res.filePath) return null

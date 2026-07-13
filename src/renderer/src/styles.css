@@ -366,9 +366,31 @@ td.empty { text-align: center; color: var(--muted); padding: 28px; }
 .inline-check { display: flex; align-items: center; gap: 6px; font-size: 13px; }
 .inline-check input { width: auto; }
 .settings-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.settings-row code { padding: 6px 10px; }
+/* Long paths shrink and wrap inside the row instead of pushing the buttons out. */
+.settings-row code { padding: 6px 10px; flex: 1 1 220px; min-width: 0; word-break: break-all; }
+.settings-row button { flex-shrink: 0; white-space: nowrap; }
 .sla-table td { border-bottom: 1px solid var(--border); padding: 6px 18px 6px 0; }
 .sla-table td:first-child { color: var(--ink); font-weight: 600; }
+
+/* ---------------------------------------------------------------- request detail view (v6.6.8) */
+
+.req-detail { display: flex; flex-direction: column; gap: 18px; }
+.req-detail-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+.req-detail-head h3 { margin: 6px 0 0; font-size: 18px; }
+.req-detail-code { font-size: 13px; padding: 3px 8px; }
+.req-detail-badges { display: flex; gap: 6px; flex-shrink: 0; }
+/* Single restrained accent — matches the app's brand color in both themes. */
+.req-detail-section { border-left: 3px solid var(--accent-strong); padding-left: 14px; }
+.req-detail-section h4 { margin: 0 0 8px; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); }
+.req-chip { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; background: var(--surface); border: 1px solid var(--border); }
+.req-chip-ok { color: #3fa34d; border-color: rgba(63, 163, 77, 0.45); background: rgba(63, 163, 77, 0.12); }
+.req-chip-fail { color: #d03b3b; border-color: rgba(208, 59, 59, 0.45); background: rgba(208, 59, 59, 0.12); }
+.req-detail-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px 24px; }
+.req-field { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.req-field.wide { grid-column: 1 / -1; }
+.req-field-label { font-size: 12px; color: var(--ink-2); }
+.req-field-value { color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.45; }
+.req-attachment { display: block; margin: 2px 0; overflow-wrap: anywhere; }
 
 /* ---------------------------------------------------------------- module tabs & findings filters */
 

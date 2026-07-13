@@ -11,8 +11,10 @@ no manual import).
 
 
 The app watches `<data folder>/inbox/` with a filesystem watcher **plus a
-30-second poll** (synced folders don't always emit change events). Processed
-files are moved to `inbox/processed/`, unparseable ones to `inbox/failed/`
+30-second poll** (synced folders don't always emit change events). Only files
+named **`VAPT*.json`** (or `VAPT*.txt`, case-insensitive) are consumed — any
+other file in the folder is ignored and left in place. Processed files are
+moved to `inbox/processed/`, unparseable ones to `inbox/failed/`
 (check there if a request doesn't appear).
 
 ## One-time setup
@@ -38,38 +40,53 @@ files are moved to `inbox/processed/`, unparseable ones to `inbox/failed/`
 
 ## File format
 
-### JSON (recommended)
+### JSON — native Power Automate export (recommended)
+
+The inbox accepts the flow's SharePoint-list export as-is — no Compose
+remapping needed:
 
 ```json
 {
-  "subject": "[VAPT-20260701-140418] VAPT Request - Thune",
-  "name": "chocho",
-  "email": "choco@redacted.com.my",
-  "department": "Customer Experience",
-  "systemName": "Thune",
-  "targetUatCompletion": "30/6/2026",
-  "goLiveDate": "11/7/2026",
-  "purpose": "System Update"
+  "requestNumber": "VAPT-20260225-114815",
+  "name": "Charanjit Singh",
+  "emailAddress": "charanjit@redacted.com.my",
+  "additionalEmailRecipients": "suhailaa@redacted.com.my_x000D_\n hizwan@redacted.com.my",
+  "departmentDivision": "CDX",
+  "systemName": "Be U App V1.20.1",
+  "targetDateToGoLive": "46079",
+  "targetDateOfUatCompletionServerReadiness": "46073",
+  "purpose": "System Update",
+  "typeOfSystem": "Mobile Application",
+  "doesTheSystem": "Will the system be published on the Internet?",
+  "attachments": "https://…sharepoint.com/…",
+  "approvalStatus": "Acknowledge",
+  "comments": "Reviewed and Acknowledged.",
+  "reviewerName": "…",
+  "timeOfReview": "2026-02-25T12:49:18"
 }
 ```
 
-Field mapping (all fields optional except `subject`/`title`):
+Field mapping (every field optional; legacy aliases from the older Compose
+format still work):
 
-| JSON field | Request field | Notes |
+| JSON field (alias) | Request field | Notes |
 |---|---|---|
-| `subject` or `title` | Project code + title | `[VAPT-…]` prefix is extracted as the project code; a leading `VAPT Request -` is stripped from the title |
-| `projectCode` | Project code | overrides the one parsed from the subject; auto-generated if absent everywhere |
-| `name` | Requester name | |
-| `email` | Requester email | |
-| `department` | Department | |
-| `systemName` or `system` | System name | |
-| `targetUatCompletion` | Target UAT date | accepts `30/6/2026` (d/m/yyyy) or `2026-06-30` |
-| `goLiveDate` or `goLive` | Go-live date | same date formats |
+| `requestNumber` (`projectCode`) | Project code | auto-generated if absent |
+| `subject` (`title`) | Title | falls back to `systemName`; a `[VAPT-…]` prefix is extracted as the project code |
+| `name` (`requestedBy`) | Requester name | |
+| `emailAddress` (`email`) | Requester email | |
+| `departmentDivision` (`department`) | Department | |
+| `systemName` (`system`) | System name | also used as the title when no subject is given |
+| `targetDateOfUatCompletionServerReadiness` (`targetUatCompletion`, `targetUatDate`) | Target UAT date | accepts Excel date serials (`46073`), `30/6/2026` (d/m/yyyy), or `2026-06-30` |
+| `targetDateToGoLive` (`goLiveDate`, `goLive`) | Go-live date | same date formats |
 | `purpose` | Purpose | |
-| `scope`, `notes` | Scope / notes | |
+| `typeOfSystem` | Assessment type | "Mobile Application" → Mobile, "Web…" → Web, "API" → API; otherwise the Web default stays |
+| `scope`, `notes` | Scope / notes | explicit `notes` replaces the auto-summary below |
+| `doesTheSystem`, `additionalEmailRecipients`, `attachments`, `approvalStatus`, `comments`, `reviewerName`, `timeOfReview` | Notes | folded into a readable summary; SharePoint's `_x000D_` line breaks are cleaned |
 
 New requests arrive with status **New**, priority **Medium**, environment
-**Production**, assessment type **Web** — triage them on the Requests page.
+**Production**, assessment type **Web** (unless `typeOfSystem` says otherwise) —
+triage them on the Requests page.
 
 ### Plain text (minimal)
 

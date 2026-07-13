@@ -4,11 +4,13 @@ import type { VaptRequest } from '../shared/types'
 import { Store } from './store'
 import { prepareRequest } from './ipc'
 import { logger } from './logger'
+import { assessmentTypeOf, cleanPaText as clean, normalizeDate, requestStatusOf } from './pa-format'
 
 /**
  * Power Automate integration (live updates): watches `<dataDir>/inbox/` for
  * request files dropped by a flow (via a SharePoint/OneDrive-synced folder).
- * Each `.json` or `.txt` file becomes a VAPT request; processed files move to
+ * Each file named `VAPT*.json` or `VAPT*.txt` becomes a VAPT request (other
+ * files are ignored and left in place); processed files move to
  * `inbox/processed/`, unparseable ones to `inbox/failed/`. See POWER-AUTOMATE.md.
  */
 export class InboxWatcher {
@@ -57,9 +59,9 @@ export class InboxWatcher {
     const dir = this.inboxDir
     let entries: string[] = []
     try {
-      entries = fs
-        .readdirSync(dir)
-        .filter((f) => f.endsWith('.json') || f.endsWith('.txt'))
+      // Only request files (VAPT*.json / VAPT*.txt) are consumed; anything
+      // else in the folder is left untouched.
+      entries = fs.readdirSync(dir).filter((f) => /^vapt.*\.(json|txt)$/i.test(f))
     } catch {
       return
     }
@@ -110,18 +112,31 @@ export class InboxWatcher {
     if (file.endsWith('.json')) {
       const j = JSON.parse(raw) as Record<string, string>
       data = {
-        title: j.subject || j.title || 'Untitled request',
-        projectCode: j.projectCode || '',
-        requestedBy: j.name || j.requestedBy || '',
-        requesterEmail: j.email || '',
-        department: j.department || '',
-        systemName: j.systemName || j.system || '',
-        targetUatDate: normalizeDate(j.targetUatCompletion || j.targetUatDate),
-        goLiveDate: normalizeDate(j.goLiveDate || j.goLive),
-        purpose: j.purpose || '',
-        scope: j.scope || '',
-        notes: j.notes || `Imported from Power Automate inbox (${path.basename(file)})`
+        title: clean(j.subject || j.title || j.systemName || j.system) || 'Untitled request',
+        // `requestNumber` is the native Power Automate export field (VAPT-YYYYMMDD-HHMMSS).
+        projectCode: j.projectCode || j.requestNumber || '',
+        requestedBy: clean(j.name || j.requestedBy),
+        requesterEmail: clean(j.email || j.emailAddress),
+        department: clean(j.department || j.departmentDivision),
+        systemName: clean(j.systemName || j.system),
+        targetUatDate: normalizeDate(
+          j.targetUatCompletion || j.targetUatDate || j.targetDateOfUatCompletionServerReadiness
+        ),
+        goLiveDate: normalizeDate(j.goLiveDate || j.goLive || j.targetDateToGoLive),
+        purpose: clean(j.purpose),
+        scope: clean(j.scope),
+        // Notes stay empty for the analyst — every export field is shown in
+        // the request detail view, so no auto-summary is duplicated here.
+        notes: j.notes || '',
+        // Keep the verbatim export so the stored request file round-trips
+        // the Power Automate schema exactly (v6.6.6, see pa-format.ts).
+        source: j
       }
+      const assessmentType = assessmentTypeOf(j.typeOfSystem)
+      if (assessmentType) data.assessmentType = assessmentType
+      // Status reflects the export's approvalStatus (v6.6.13); editable afterwards.
+      const status = requestStatusOf(j.approvalStatus)
+      if (status) data.status = status
     } else {
       // Plain text: first line is the subject, rest goes to notes.
       const [subject, ...rest] = raw.split('\n')
@@ -146,11 +161,89 @@ export class InboxWatcher {
   }
 }
 
-/** Accept "30/6/2026" (Power Automate d/m/yyyy), "2026-06-30", or empty. */
-export function normalizeDate(v?: string): string {
-  if (!v) return ''
-  const dmy = v.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
-  if (dmy) return `${dmy[3]}-${dmy[2].padStart(2, '0')}-${dmy[1].padStart(2, '0')}`
-  const iso = v.trim().match(/^\d{4}-\d{2}-\d{2}/)
-  return iso ? iso[0] : ''
+/**
+ * Live requests-folder watcher (v6.6.7): requests are one file each, so
+ * adding/deleting `*.json` files externally (Finder, SharePoint sync, a
+ * Power Automate flow writing straight into the folder) reflects in the UI
+ * without restarting the app. Changes are detected via fs events plus a
+ * 30-second signature poll (synced folders don't always emit events); the
+ * portal's own writes fire too, which just causes a harmless cache refresh.
+ */
+export class RequestsWatcher {
+  private watcher: fs.FSWatcher | null = null
+  private timer: NodeJS.Timeout | null = null
+  private scheduled: NodeJS.Timeout | null = null
+  private lastSig = ''
+
+  constructor(
+    private store: Store,
+    private onChange: () => void
+  ) {}
+
+  private get dir(): string {
+    return this.store.requestsDirPath()
+  }
+
+  /** Cheap change detector: file names + mtimes + sizes. */
+  private signature(): string {
+    try {
+      return fs
+        .readdirSync(this.dir)
+        .filter((f) => f.endsWith('.json'))
+        .sort()
+        .map((f) => {
+          const st = fs.statSync(path.join(this.dir, f))
+          return `${f}:${st.mtimeMs}:${st.size}`
+        })
+        .join('|')
+    } catch {
+      return ''
+    }
+  }
+
+  start(): void {
+    this.stop()
+    try {
+      fs.mkdirSync(this.dir, { recursive: true })
+    } catch {
+      /* folder may be created later; the poll keeps trying */
+    }
+    this.lastSig = this.signature()
+    try {
+      this.watcher = fs.watch(this.dir, () => this.schedule())
+    } catch {
+      /* watching is best-effort; the poll below still runs */
+    }
+    this.timer = setInterval(() => this.check(), 30_000)
+  }
+
+  stop(): void {
+    this.watcher?.close()
+    this.watcher = null
+    if (this.timer) clearInterval(this.timer)
+    this.timer = null
+    if (this.scheduled) clearTimeout(this.scheduled)
+    this.scheduled = null
+  }
+
+  private schedule(): void {
+    if (this.scheduled) clearTimeout(this.scheduled)
+    this.scheduled = setTimeout(() => this.check(), 500)
+  }
+
+  private check(): void {
+    const sig = this.signature()
+    if (sig === this.lastSig) return
+    this.lastSig = sig
+    this.store.invalidate('requests')
+    this.onChange()
+    logger.write({
+      category: 'Import / Export',
+      module: 'inbox',
+      source: 'inbox.ts',
+      action: 'requests folder changed',
+      message: 'Requests folder changed on disk — reloaded live'
+    })
+  }
 }
+

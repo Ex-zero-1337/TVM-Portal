@@ -1,6 +1,6 @@
 {
   "name": "tvm-portal",
-  "version": "1.6.6",
+  "version": "1.6.9",
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",

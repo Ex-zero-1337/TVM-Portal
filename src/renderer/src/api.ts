@@ -1,5 +1,6 @@
 import type {
   AppNotification,
+  AssessmentCategory,
   CollectionMap,
   CollectionName,
   ComparisonResult,
@@ -24,6 +25,16 @@ interface Api {
   setSettings(patch: Partial<Settings>): Promise<Settings>
   chooseDir(): Promise<string | null>
   importNessus(assessmentId: string, kind: 'nessus' | 'csv'): Promise<NessusImportResult | null>
+  /** Module-level manual import (v6.6.10): one assessment per selected file; null = dialog cancelled. */
+  importNessusFiles(category: AssessmentCategory): Promise<{
+    created: number
+    imported: number
+    duplicates: number
+    hostsCreated: number
+    failures: string[]
+  } | null>
+  /** Bulk assessment removal with cascade (v6.6.12): findings, evidence and orphaned hosts are deleted from disk too. */
+  assessmentsRemoveMany(ids: string[]): Promise<{ assessments: number; findings: number; hosts: number }>
   scannerTest(conn: ScannerConnection): Promise<ScannerTestResult>
   scannerListScans(connId: string, includePolicy?: boolean): Promise<ScannerScan[]>
   scannerFetch(assessmentId: string, connId: string, scanId: number, scanName: string): Promise<NessusImportResult>

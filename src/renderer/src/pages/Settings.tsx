@@ -124,11 +124,48 @@ export function SettingsPage() {
                 </div>
               </div>
               <div className="card">
-                <h3>Reports Folder</h3>
-                <div className="settings-row">
-                  <code>{settings.reportsDir}</code>
-                  <button onClick={() => api.openPath(settings.reportsDir)}>Open in file manager</button>
-                </div>
+                <h3>Storage Locations</h3>
+                <p className="muted">
+                  Each area can live in its own folder. Blank entries use the default folder inside the data folder;
+                  changing a location moves the stored files there automatically.
+                </p>
+                <StorageLocationRow
+                  label="Reports"
+                  value={settings.reportsDir}
+                  onChoose={(dir) => save({ reportsDir: dir }, 'Reports folder updated.')}
+                />
+                <StorageLocationRow
+                  label="Requests"
+                  value={settings.requestsDir || ''}
+                  fallback={`${settings.dataDir}/requests`}
+                  onChoose={(dir) => save({ requestsDir: dir }, 'Requests folder updated — files migrated.')}
+                  onReset={() => save({ requestsDir: '' }, 'Requests folder reset to default — files migrated.')}
+                />
+                <StorageLocationRow
+                  label="Web Findings"
+                  value={settings.webFindingsDir || ''}
+                  fallback={`${settings.dataDir}/web-findings`}
+                  onChoose={(dir) => save({ webFindingsDir: dir }, 'Web findings folder updated — files migrated.')}
+                  onReset={() => save({ webFindingsDir: '' }, 'Web findings folder reset to default — files migrated.')}
+                />
+                <StorageLocationRow
+                  label="Internal Findings"
+                  value={settings.internalFindingsDir || ''}
+                  fallback={`${settings.dataDir}/internal-findings`}
+                  onChoose={(dir) => save({ internalFindingsDir: dir }, 'Internal findings folder updated — files migrated.')}
+                  onReset={() =>
+                    save({ internalFindingsDir: '' }, 'Internal findings folder reset to default — files migrated.')
+                  }
+                />
+                <StorageLocationRow
+                  label="External Findings"
+                  value={settings.externalFindingsDir || ''}
+                  fallback={`${settings.dataDir}/external-findings`}
+                  onChoose={(dir) => save({ externalFindingsDir: dir }, 'External findings folder updated — files migrated.')}
+                  onReset={() =>
+                    save({ externalFindingsDir: '' }, 'External findings folder reset to default — files migrated.')
+                  }
+                />
               </div>
             </>
           )}
@@ -177,6 +214,40 @@ export function SettingsPage() {
           )}
         </div>
       </div>
+    </div>
+  )
+}
+
+/** One configurable storage location: effective path, change / reset / open actions (v6.6.3). */
+function StorageLocationRow({
+  label,
+  value,
+  fallback,
+  onChoose,
+  onReset
+}: {
+  label: string
+  value: string
+  /** Default path shown (and used) when no override is set. */
+  fallback?: string
+  onChoose: (dir: string) => Promise<void>
+  onReset?: () => Promise<void>
+}) {
+  const effective = value || fallback || ''
+  const choose = async () => {
+    const dir = await api.chooseDir()
+    if (dir) await onChoose(dir)
+  }
+  return (
+    <div className="settings-row">
+      <b style={{ minWidth: 130 }}>{label}</b>
+      <code>
+        {effective}
+        {!value && fallback ? ' (default)' : ''}
+      </code>
+      <button onClick={choose}>Change…</button>
+      {onReset && value && <button onClick={() => void onReset()}>Reset to default</button>}
+      <button onClick={() => api.openPath(effective)}>Open</button>
     </div>
   )
 }

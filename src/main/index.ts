@@ -3,7 +3,7 @@ import fs from 'fs'
 import path from 'path'
 import { Store } from './store'
 import { registerIpc } from './ipc'
-import { InboxWatcher } from './inbox'
+import { InboxWatcher, RequestsWatcher } from './inbox'
 import { logger } from './logger'
 
 // Keep the userData path stable whether running packaged or via `electron .`
@@ -15,6 +15,7 @@ function createWindow(): void {
     height: 900,
     minWidth: 1024,
     minHeight: 640,
+    show: false, // shown maximized below — avoids a small-window flash
     title: 'TVM Portal',
     backgroundColor: '#0f172a',
     webPreferences: {
@@ -24,6 +25,10 @@ function createWindow(): void {
       sandbox: false
     }
   })
+
+  // Open maximized (full screen) by default; the window stays resizable.
+  win.maximize()
+  win.show()
 
   win.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url)
@@ -76,8 +81,16 @@ app.whenReady().then(() => {
   const notifyRenderers = () =>
     BrowserWindow.getAllWindows().forEach((w) => w.webContents.send('data-changed'))
   const inbox = new InboxWatcher(store, notifyRenderers)
-  registerIpc(store, () => inbox.start()) // re-watch when the data folder moves
+  // Requests are one file each — watch the folder so external adds/deletes
+  // (Finder, SharePoint sync) reflect live without an app restart (v6.6.7).
+  const requestsWatcher = new RequestsWatcher(store, notifyRenderers)
+  registerIpc(store, () => {
+    // re-watch when the data folder / requests folder moves
+    inbox.start()
+    requestsWatcher.start()
+  })
   inbox.start()
+  requestsWatcher.start()
 
   createWindow()
 
@@ -87,6 +100,7 @@ app.whenReady().then(() => {
 
   app.on('will-quit', () => {
     inbox.stop()
+    requestsWatcher.stop()
     clearInterval(rotateTimer)
     logger.write({ category: 'System', module: 'main', source: 'index.ts', action: 'app-quit', message: 'TVM Portal shutting down' })
   })

@@ -4,15 +4,21 @@ import type { Severity } from '../shared/types'
 export interface ScanRow {
   ip: string
   hostname: string
+  /** Operating system from HostProperties (XML exports; '' in CSV). */
+  os: string
   port: string
   pluginId: string
   name: string
+  /** Raw scanner plugin name (kept even when `name` is a compliance check name). */
+  pluginName: string
   cve: string
   cvss: number
   severity: Severity
   description: string
   solution: string
   evidence: string
+  /** Compliance audit result (`cm:compliance-result`): PASSED / FAILED / WARNING; '' = normal vulnerability row. */
+  complianceResult: string
 }
 
 const NESSUS_SEVERITY: Record<string, Severity> = {
@@ -55,21 +61,33 @@ export function parseNessusXml(xml: string): ScanRow[] {
     const prop = (n: string) => tags.find((t) => t['@_name'] === n)?.['#text'] ?? ''
     const ip = String(prop('host-ip') || host['@_name'] || '')
     const hostname = String(prop('host-fqdn') || prop('netbios-name') || host['@_name'] || ip)
+    const os = String(prop('operating-system') || prop('os') || '')
 
     for (const item of asArray<any>(host.ReportItem)) {
       const cvss = parseFloat(item.cvss3_base_score ?? item.cvss_base_score ?? '0') || 0
+      // Compliance audits (e.g. CIS benchmarks): the meaningful name/result
+      // live in the cm:* fields — the plugin name is just "Unix Compliance
+      // Checks" and would make every finding look identical.
+      const checkName = String(item['cm:compliance-check-name'] ?? '')
+      const actualValue = String(item['cm:compliance-actual-value'] ?? '')
+      const pluginName = String(item['@_pluginName'] ?? item.plugin_name ?? 'Unknown plugin')
       rows.push({
         ip,
         hostname,
+        os,
         port: String(item['@_port'] ?? '0'),
         pluginId: String(item['@_pluginID'] ?? ''),
-        name: String(item['@_pluginName'] ?? item.plugin_name ?? 'Unknown plugin'),
+        name: checkName || pluginName,
+        pluginName,
         cve: asArray<any>(item.cve).map(String).join(', '),
         cvss,
         severity: NESSUS_SEVERITY[String(item['@_severity'] ?? '0')] ?? 'Info',
-        description: String(item.description ?? item.synopsis ?? ''),
-        solution: String(item.solution ?? ''),
-        evidence: String(item.plugin_output ?? '')
+        description: String(item['cm:compliance-info'] ?? item.description ?? item.synopsis ?? ''),
+        solution: String(item['cm:compliance-solution'] ?? item.solution ?? ''),
+        evidence: actualValue
+          ? `Actual value:\n${actualValue}`
+          : String(item['cm:compliance-output'] ?? item.plugin_output ?? ''),
+        complianceResult: String(item['cm:compliance-result'] ?? '').toUpperCase()
       })
     }
   }
@@ -132,14 +150,17 @@ export function parseNessusCsv(text: string): ScanRow[] {
   return rows.slice(1).map((r) => ({
     ip: cell(r, idx.host),
     hostname: cell(r, idx.host),
+    os: '',
     port: cell(r, idx.port) || '0',
     pluginId: cell(r, idx.pluginId),
     name: cell(r, idx.name) || 'Unknown plugin',
+    pluginName: cell(r, idx.name) || 'Unknown plugin',
     cve: cell(r, idx.cve),
     cvss: parseFloat(cell(r, idx.cvss)) || 0,
     severity: RISK_SEVERITY[cell(r, idx.risk).toLowerCase()] ?? 'Info',
     description: cell(r, idx.description),
     solution: cell(r, idx.solution),
-    evidence: cell(r, idx.output)
+    evidence: cell(r, idx.output),
+    complianceResult: ''
   }))
 }

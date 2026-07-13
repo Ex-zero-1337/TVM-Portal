@@ -33,6 +33,7 @@ const STATUS_TONE: Record<string, string> = {
   Planned: 'tone-blue',
   Delivered: 'tone-green',
   Approved: 'tone-green',
+  Acknowledge: 'tone-green',
   Scheduled: 'tone-blue',
   Reporting: 'tone-amber',
   'Pending Approval': 'tone-amber',
@@ -47,6 +48,29 @@ const STATUS_TONE: Record<string, string> = {
 
 export function StatusBadge({ value }: { value: string }) {
   return <span className={`badge ${STATUS_TONE[value] ?? 'tone-gray'}`}>{value}</span>
+}
+
+// ---------------------------------------------------------------- Detail layout (v6.6.8)
+
+/** One label/value cell in a detail grid; `wide` spans the full row; hidden when empty. */
+export function DetailField({ label, value, wide }: { label: string; value?: ReactNode; wide?: boolean }) {
+  if (value === undefined || value === null || value === '') return null
+  return (
+    <div className={`req-field${wide ? ' wide' : ''}`}>
+      {label && <span className="req-field-label">{label}</span>}
+      <span className="req-field-value">{value}</span>
+    </div>
+  )
+}
+
+/** Accented section used by the request/finding detail views. */
+export function DetailSection({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="req-detail-section">
+      <h4>{title}</h4>
+      <div className="req-detail-grid">{children}</div>
+    </section>
+  )
 }
 
 // ---------------------------------------------------------------- Table

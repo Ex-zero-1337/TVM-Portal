@@ -1,0 +1,64 @@
+function reportHtml(d: ReportData, variant: 'executive' | 'full'): string {
+  const sevRows = SEVERITIES.map(
+    (s) => `<tr><td><span class="sev" style="background:${SEV_COLORS[s]}">${s}</span></td><td>${d.bySeverity[s]}</td></tr>`
+  ).join('')
+  const findingRows = d.findings
+    .map(
+      (f) => `
+    <div class="finding">
+      <h3><span class="sev" style="background:${SEV_COLORS[f.severity]}">${f.severity}</span> ${esc(f.title)}</h3>
+      <table class="meta">
+        <tr><td>Host</td><td>${esc(d.hostName(f.hostId))}${f.port ? ':' + esc(f.port) : ''}</td>
+            <td>Application</td><td>${esc(d.appName(f.applicationId))}</td></tr>
+        <tr><td>CVSS</td><td>${f.cvss || '—'}</td><td>CVE</td><td>${esc(f.cve) || '—'}</td></tr>
+        <tr><td>Project Code</td><td>${esc(f.projectCode || '') || '—'}</td>
+            <td>Classification</td><td>${firstIdentifiedLabel(f) ? `Existing • First Identified: ${esc(firstIdentifiedLabel(f))}` : f.classification}</td></tr>
+        <tr><td>Status</td><td>${f.status}</td><td>SLA due</td><td>${f.slaDueDate || '—'}${isOverdue(f) ? ' <b style="color:#b91c1c">(OVERDUE)</b>' : ''}</td></tr>
+      </table>
+      <p><b>Description:</b> ${esc(f.description) || '—'}</p>
+      <p><b>Recommendation:</b> ${esc(f.recommendation) || '—'}</p>
+    </div>`
+    )
+    .join('')
+  return `<!doctype html><html><head><meta charset="utf-8"><style>
+    body{font-family:-apple-system,'Segoe UI',Arial,sans-serif;color:#111;margin:40px;font-size:12px}
+    h1{font-size:22px;border-bottom:3px solid #111;padding-bottom:8px}
+    h2{font-size:16px;margin-top:28px}
+    h3{font-size:13px;margin:0 0 6px}
+    table{border-collapse:collapse;width:100%;margin:8px 0}
+    td,th{border:1px solid #ccc;padding:4px 8px;text-align:left;vertical-align:top}
+    .sev{color:#fff;padding:1px 8px;border-radius:3px;font-size:11px;font-weight:600}
+    .finding{border:1px solid #ddd;border-radius:6px;padding:12px;margin:12px 0;page-break-inside:avoid}
+    .meta td:nth-child(odd){font-weight:600;width:12%;background:#f5f5f5}
+  </style></head><body>
+    <h1>${esc(d.title)}</h1>
+    ${d.projectCode ? `<p><b>Project Code:</b> ${esc(d.projectCode)}</p>` : ''}
+    <p>Generated ${d.generatedAt}${variant === 'executive' ? ' · Executive Summary edition' : ''}</p>
+    <h2>1. Executive Summary</h2><p>${esc(execSummaryText(d))}</p>
+    <h2>2. Risk Summary</h2><table>${sevRows}</table>
+    <h2>3. SLA Summary</h2>
+    <table>
+      <tr><td>Open</td><td>${d.sla.open}</td></tr>
+      <tr><td>Closed</td><td>${d.sla.closed}</td></tr>
+      <tr><td>Overdue</td><td>${d.sla.overdue}</td></tr>
+      <tr><td>Compliance rate</td><td>${d.sla.complianceRate}%</td></tr>
+      <tr><td>Average closure time</td><td>${d.sla.avgClosureDays} days</td></tr>
+    </table>
+    <h2>4. Retest Summary</h2>
+    <table>${Object.entries(d.retestCounts)
+      .map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`)
+      .join('')}</table>
+    ${variant === 'full' ? `<h2>5. Technical Findings</h2>${findingRows || '<p>No findings.</p>'}` : ''}
+  </body></html>`
+}
+
+async function writePdf(d: ReportData, outputPath: string, variant: 'executive' | 'full'): Promise<void> {
+  const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true } })
+  try {
+    await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(reportHtml(d, variant)))
+    const pdf = await win.webContents.printToPDF({ printBackground: true, pageSize: 'A4' })
+    fs.writeFileSync(outputPath, pdf)
+  } finally {
+    win.destroy()
+  }
+}

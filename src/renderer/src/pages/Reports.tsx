@@ -6,12 +6,12 @@ const FORMATS = [
   {
     id: 'xlsx' as const,
     label: 'Excel (.xlsx)',
-    desc: 'Sheets: Summary, Findings, SLA Tracking, Host Mapping, Severity Distribution.'
+    desc: 'Sheets: Summary, Report Tracker, and SLA Tracking with formatted dashboards and finding tables.'
   },
   {
     id: 'docx' as const,
     label: 'Word (.docx)',
-    desc: 'Cover page with project code, table of contents, executive summary, findings detail, appendices.'
+    desc: 'Cover page, table of contents, executive summary, summary of findings, and full technical findings.'
   },
   {
     id: 'pdf' as const,
@@ -23,7 +23,7 @@ const FORMATS = [
     id: 'pdf' as const,
     label: 'PDF — Executive Only',
     variant: 'executive' as const,
-    desc: 'Client-sharing edition: executive, risk, SLA and retest summaries only.'
+    desc: 'Management-ready summary with overview, risk rating, key risks, remediation priority, retest status and conclusion.'
   }
 ]
 
@@ -77,8 +77,7 @@ export function ReportsPage() {
           </select>
         </label>
         <p className="muted">
-          Every report includes an executive summary, risk summary, SLA summary, retest summary and full technical
-          findings.
+          Reports use the selected scope and format. Full technical reports include detailed findings; executive reports use a shorter management view.
         </p>
       </div>
 

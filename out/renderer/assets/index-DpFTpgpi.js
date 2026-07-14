@@ -13776,6 +13776,13 @@ function humanSize(n) {
   if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`;
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
+const KB_PICK_SEVERITY_ORDER = {
+  Info: 0,
+  Low: 1,
+  Medium: 2,
+  High: 3,
+  Critical: 4
+};
 function Attachments({ finding }) {
   const db = useDb();
   const [busy, setBusy] = reactExports.useState(false);
@@ -13899,6 +13906,7 @@ function FindingDetail({ finding, onClose, onEdit }) {
 function FindingsPage({ category }) {
   const db = useDb();
   const [kbPick, setKbPick] = reactExports.useState(false);
+  const [kbPickSearch, setKbPickSearch] = reactExports.useState("");
   const [kbTemplate, setKbTemplate] = reactExports.useState(null);
   const [appId, setAppId] = reactExports.useState("");
   const [webContext, setWebContext] = reactExports.useState("");
@@ -13949,6 +13957,29 @@ function FindingsPage({ category }) {
   const annualQuarterlyOptions = db.assessments.filter(
     (a) => a.applicationId === ctxAppId && (a.category || categoryOfType(a.type)) === "web" && (a.timeframe || "adhoc") !== "adhoc"
   ).map((a) => ({ value: a.id, label: `${a.name} (${a.timeframe})` }));
+  const kbPickTemplates = reactExports.useMemo(() => {
+    const q = kbPickSearch.trim().toLowerCase();
+    return [...db.kb].filter((t) => {
+      if (!q) return true;
+      return [
+        t.title,
+        t.severity,
+        t.cve,
+        t.cwe,
+        t.owasp,
+        t.description,
+        t.risk,
+        t.recommendation
+      ].join(" ").toLowerCase().includes(q);
+    }).sort((a, b) => {
+      const sev = (KB_PICK_SEVERITY_ORDER[a.severity] ?? 99) - (KB_PICK_SEVERITY_ORDER[b.severity] ?? 99);
+      return sev || a.title.localeCompare(b.title);
+    });
+  }, [db.kb, kbPickSearch]);
+  const closeKbPick = () => {
+    setKbPick(false);
+    setKbPickSearch("");
+  };
   const defaults = () => ({
     severity: "Medium",
     status: "Open",
@@ -14138,23 +14169,39 @@ function FindingsPage({ category }) {
         renderDetail: (row, close, edit) => /* @__PURE__ */ jsxRuntimeExports.jsx(FindingDetail, { finding: row, onClose: close, onEdit: edit })
       }
     ),
-    kbPick && /* @__PURE__ */ jsxRuntimeExports.jsx(Modal, { title: "Pick a Knowledge Base template", onClose: () => setKbPick(false), children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "kb-pick-list", children: db.kb.map((t) => /* @__PURE__ */ jsxRuntimeExports.jsxs(
-      "button",
-      {
-        className: "kb-pick",
-        onClick: () => {
-          setKbTemplate(t);
-          setKbPick(false);
-          alert('Template selected — click "+ New Finding" and the form will be prefilled.');
-        },
-        children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx(SeverityBadge, { value: t.severity }),
-          " ",
-          t.title
-        ]
-      },
-      t.id
-    )) }) })
+    kbPick && /* @__PURE__ */ jsxRuntimeExports.jsxs(Modal, { title: "Pick a Knowledge Base template", onClose: closeKbPick, children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx(
+        "input",
+        {
+          className: "kb-pick-search",
+          autoFocus: true,
+          type: "search",
+          placeholder: "Search title, severity, CWE, OWASP, description...",
+          value: kbPickSearch,
+          onChange: (e) => setKbPickSearch(e.target.value)
+        }
+      ),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "kb-pick-list", children: [
+        kbPickTemplates.map((t) => /* @__PURE__ */ jsxRuntimeExports.jsxs(
+          "button",
+          {
+            className: "kb-pick",
+            onClick: () => {
+              setKbTemplate(t);
+              closeKbPick();
+              alert('Template selected — click "+ New Finding" and the form will be prefilled.');
+            },
+            children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx(SeverityBadge, { value: t.severity }),
+              " ",
+              t.title
+            ]
+          },
+          t.id
+        )),
+        kbPickTemplates.length === 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "muted", children: "No matching template." })
+      ] })
+    ] })
   ] });
 }
 const emptyImportResult = () => ({
@@ -14988,12 +15035,12 @@ const FORMATS = [
   {
     id: "xlsx",
     label: "Excel (.xlsx)",
-    desc: "Sheets: Summary, Findings, SLA Tracking, Host Mapping, Severity Distribution."
+    desc: "Sheets: Summary, Report Tracker, and SLA Tracking with formatted dashboards and finding tables."
   },
   {
     id: "docx",
     label: "Word (.docx)",
-    desc: "Cover page with project code, table of contents, executive summary, findings detail, appendices."
+    desc: "Cover page, table of contents, executive summary, summary of findings, and full technical findings."
   },
   {
     id: "pdf",
@@ -15005,7 +15052,7 @@ const FORMATS = [
     id: "pdf",
     label: "PDF — Executive Only",
     variant: "executive",
-    desc: "Client-sharing edition: executive, risk, SLA and retest summaries only."
+    desc: "Management-ready summary with overview, risk rating, key risks, remediation priority, retest status and conclusion."
   }
 ];
 function ReportsPage() {
@@ -15049,7 +15096,7 @@ function ReportsPage() {
           ] }, a.id))
         ] })
       ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "muted", children: "Every report includes an executive summary, risk summary, SLA summary, retest summary and full technical findings." })
+      /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "muted", children: "Reports use the selected scope and format. Full technical reports include detailed findings; executive reports use a shorter management view." })
     ] }),
     /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "report-formats", children: FORMATS.map((f) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "card report-card", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsx("h3", { children: f.label }),

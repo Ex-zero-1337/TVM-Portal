@@ -22,10 +22,10 @@ npm run typecheck  # typecheck main + renderer
 | **Requests** | Project Code Requests: `VAPT-YYYYMMDD-HHMMSS` auto-generated, or parsed from Power Automate subjects (`[VAPT-…] VAPT Request - Name`); requester name/email/department, system name, UAT & go-live dates, purpose |
 | **Applications** | Application inventory: business unit, owner, tech stack, criticality, risk rating. Open Findings count **excludes Info** severity |
 | **Hosts** | Read-only **inventory** (no manual creation): hosts populated from scan imports, organised as a tree Application → Assessment Type → Period → Scan → Hosts, each row showing open findings by Critical/High/Medium/Low |
-| **Assessments** | Three independent modules — **Web Application** (Web/API/Mobile), **Internal/External**, **Host** — each with its own assessments, request tracking and per-application findings view; timeframe (annual/quarterly/adhoc). Import Scan offers **Fetch from Scanner / Upload .nessus / Upload CSV** |
+| **Assessments** | Three independent modules — **Web Application** (Web/API/Mobile), **Internal/External**, **Host** — each with its own assessments, request tracking and per-application findings view; timeframe (annual/quarterly/adhoc). Assessment actions include **Fetch All from Scanner**, **Fetch Selected from Scanner**, `.nessus` upload and CSV upload |
 | **Findings** | Reached **only through the assessment modules** (no standalone page), per application, scoped by module/timeframe with severity checkboxes. **Affected Asset** replaces host (free text for web: URL/endpoint/API route/cookie/parameter; auto-populated host list for internal/external/host). Multiple **evidence attachments** per finding (png/jpg/jpeg/gif/txt/zip). Info is excluded from dashboard/application totals |
 | **Retests** | Retest sessions linked to a baseline; compare any two assessments → new / resolved / recurring / severity changes |
-| **Reports** | Excel, Word and PDF with executive summary, risk summary, SLA summary, retest summary and technical findings |
+| **Reports** | Excel Summary/Report Tracker/SLA Tracking workbook, professional Word technical report, PDF Full Technical report, and PDF Executive Summary Report for management |
 | **Knowledge Base** | Reusable vulnerability templates (description, risk, recommendation, CVE/CWE/OWASP) |
 | **Search** | Global search bar across applications, hosts, findings, CVEs, IPs, endpoints, project codes |
 | **Settings** | Sections: General, Storage, **Scanner Connections** (Nessus / Tenable.io — name, URL, access/secret keys, default, Test Connection), Report Templates, Backup, About |
@@ -34,9 +34,9 @@ npm run typecheck  # typecheck main + renderer
 ## Scanner integration
 
 Configure connections in **Settings → Scanner Connections** (API-key auth for Nessus
-Professional/Manager and Tenable.io). From an assessment, **Import Scan → Fetch from
-Scanner** lists the scanner's scans and pulls the chosen one straight into the assessment
-via the same import pipeline as file upload. `.nessus`/CSV upload remains the fallback.
+Professional/Manager and Tenable.io). From an assessment, **Fetch Selected from
+Scanner** pulls one chosen scan into the selected assessment, while **Fetch All from
+Scanner** imports all listed scans through the same pipeline. `.nessus`/CSV upload remains the fallback.
 Client lives in `src/main/scanner.ts` (export → poll → download).
 
 ## Key mechanics
@@ -60,10 +60,10 @@ Client lives in `src/main/scanner.ts` (export → poll → download).
   data is migrated automatically on first write. The data folder is configurable in Settings —
   point it at a synced folder for SharePoint. Every write is atomic (tmp file + rename) and
   immediate (auto-save).
-- **Reports** (`src/main/reports.ts`, guidelines in `REPORTING.md`): Excel (Summary, Findings,
-  SLA Tracking, Host Mapping, Severity Distribution), Word (cover page with project code, TOC,
-  findings detail, appendices), PDF in Executive-only or Full Technical editions via a hidden
-  window + `printToPDF` (no extra native deps).
+- **Reports** (`src/main/reports.ts`, guidelines in `REPORTING.md`): Excel (Summary,
+  Report Tracker, SLA Tracking), Word technical report with professional cover, TOC,
+  findings summary chart/table and detailed findings, plus PDF Executive Summary and
+  Full Technical editions via a hidden window + `printToPDF` (A4, no extra native deps).
 
 ## Smoke test
 

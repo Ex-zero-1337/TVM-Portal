@@ -20,14 +20,6 @@ function humanSize(n: number): string {
   return `${(n / 1024 / 1024).toFixed(1)} MB`
 }
 
-const KB_PICK_SEVERITY_ORDER: Record<string, number> = {
-  Info: 0,
-  Low: 1,
-  Medium: 2,
-  High: 3,
-  Critical: 4
-}
-
 /** Multiple evidence attachments per finding (SRS v4 §4). */
 function Attachments({ finding }: { finding: Finding }) {
   const db = useDb()
@@ -221,7 +213,6 @@ function FindingDetail({ finding, onClose, onEdit }: { finding: Finding; onClose
 export function FindingsPage({ category }: { category?: AssessmentCategory }) {
   const db = useDb()
   const [kbPick, setKbPick] = useState(false)
-  const [kbPickSearch, setKbPickSearch] = useState('')
   const [kbTemplate, setKbTemplate] = useState<KbTemplate | null>(null)
   const [appId, setAppId] = useState('')
   // Web context value: 'req:<requestId>' (adhoc) or 'app:<applicationId>'.
@@ -313,36 +304,6 @@ export function FindingsPage({ category }: { category?: AssessmentCategory }) {
         (a.timeframe || 'adhoc') !== 'adhoc'
     )
     .map((a) => ({ value: a.id, label: `${a.name} (${a.timeframe})` }))
-
-  const kbPickTemplates = useMemo(() => {
-    const q = kbPickSearch.trim().toLowerCase()
-    return [...db.kb]
-      .filter((t) => {
-        if (!q) return true
-        return [
-          t.title,
-          t.severity,
-          t.cve,
-          t.cwe,
-          t.owasp,
-          t.description,
-          t.risk,
-          t.recommendation
-        ]
-          .join(' ')
-          .toLowerCase()
-          .includes(q)
-      })
-      .sort((a, b) => {
-        const sev = (KB_PICK_SEVERITY_ORDER[a.severity] ?? 99) - (KB_PICK_SEVERITY_ORDER[b.severity] ?? 99)
-        return sev || a.title.localeCompare(b.title)
-      })
-  }, [db.kb, kbPickSearch])
-
-  const closeKbPick = () => {
-    setKbPick(false)
-    setKbPickSearch('')
-  }
 
   // New web findings inherit the working context automatically (SRS v6.2 §7):
   // in a project-code context the code, application and (server-side) adhoc
@@ -622,30 +583,21 @@ export function FindingsPage({ category }: { category?: AssessmentCategory }) {
       />
 
       {kbPick && (
-        <Modal title="Pick a Knowledge Base template" onClose={closeKbPick}>
-          <input
-            className="kb-pick-search"
-            autoFocus
-            type="search"
-            placeholder="Search title, severity, CWE, OWASP, description..."
-            value={kbPickSearch}
-            onChange={(e) => setKbPickSearch(e.target.value)}
-          />
+        <Modal title="Pick a Knowledge Base template" onClose={() => setKbPick(false)}>
           <div className="kb-pick-list">
-            {kbPickTemplates.map((t) => (
+            {db.kb.map((t) => (
               <button
                 key={t.id}
                 className="kb-pick"
                 onClick={() => {
                   setKbTemplate(t)
-                  closeKbPick()
+                  setKbPick(false)
                   alert('Template selected — click "+ New Finding" and the form will be prefilled.')
                 }}
               >
                 <SeverityBadge value={t.severity} /> {t.title}
               </button>
             ))}
-            {kbPickTemplates.length === 0 && <p className="muted">No matching template.</p>}
           </div>
         </Modal>
       )}

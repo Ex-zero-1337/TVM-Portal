@@ -1,6 +1,6 @@
 # TVM Portal Release Notes
 
-## v1.6.9 - Reporting and Scanner Workflow Enhancements
+## v1.6.10 - Reporting and Scanner Workflow Enhancements
 
 This release focuses on improving scanner import workflows and producing more professional assessment reports for management, technical reviewers, and remediation tracking.
 
@@ -48,6 +48,7 @@ This release focuses on improving scanner import workflows and producing more pr
 - Removed old Host Mapping and Severity Distribution sheets.
 - Fixed table header colour overflow past the last intended column in Report Tracker and SLA Tracking.
 - Missing values in Report Tracker and SLA Tracking are now left blank.
+- Fixed dashboard section cells so styled blank columns remain empty instead of repeating section values.
 - Severity colours are standardised as red, orange-yellow, yellow, and green.
 
 ### Word Report Enhancements

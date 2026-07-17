@@ -1,0 +1,175 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="1900" viewBox="0 0 1500 1900">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#333333"/>
+    </marker>
+    <style>
+      .title { font: 700 34px Arial, sans-serif; fill: #172033; }
+      .subtitle { font: 18px Arial, sans-serif; fill: #4a5568; }
+      .nodeText { font: 16px Arial, sans-serif; fill: #172033; }
+      .smallText { font: 14px Arial, sans-serif; fill: #4a5568; }
+      .label { font: 14px Arial, sans-serif; fill: #1f2937; }
+      .line { stroke: #333333; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .box { rx: 8; ry: 8; stroke-width: 2; }
+      .trigger { fill: #dff3ff; stroke: #2277aa; }
+      .process { fill: #f7f7fb; stroke: #606070; }
+      .data { fill: #fff5d7; stroke: #b7791f; }
+      .decision { fill: #ffe6e6; stroke: #b83232; }
+      .approval { fill: #e8f7ee; stroke: #2f855a; }
+      .notify { fill: #efe8ff; stroke: #6b46c1; }
+      .group { fill: #ffffff; stroke: #cbd5e0; stroke-width: 2; stroke-dasharray: 8 6; }
+    </style>
+  </defs>
+
+  <rect x="0" y="0" width="1500" height="1900" fill="#ffffff"/>
+  <text x="750" y="58" text-anchor="middle" class="title">VAPT Request - Current Power Automate Flow</text>
+  <text x="750" y="88" text-anchor="middle" class="subtitle">Generated from Microsoft.Flow definition.json in the current package</text>
+
+  <rect x="540" y="125" width="420" height="70" class="box trigger"/>
+  <text x="750" y="153" text-anchor="middle" class="nodeText">Microsoft Forms</text>
+  <text x="750" y="177" text-anchor="middle" class="smallText">New response submitted</text>
+
+  <rect x="540" y="230" width="420" height="70" class="box process"/>
+  <text x="750" y="258" text-anchor="middle" class="nodeText">Get response details</text>
+  <text x="750" y="282" text-anchor="middle" class="smallText">Use response ID from trigger</text>
+
+  <rect x="540" y="335" width="420" height="70" class="box process"/>
+  <text x="750" y="363" text-anchor="middle" class="nodeText">Generate request number</text>
+  <text x="750" y="387" text-anchor="middle" class="smallText">VAPT-yyyyMMdd-HHmmss</text>
+
+  <rect x="540" y="440" width="420" height="70" class="box process"/>
+  <text x="750" y="468" text-anchor="middle" class="nodeText">Parse response attachment JSON</text>
+  <text x="750" y="492" text-anchor="middle" class="smallText">Compose from Forms attachment field</text>
+
+  <rect x="540" y="545" width="420" height="70" class="box process"/>
+  <text x="750" y="573" text-anchor="middle" class="nodeText">Initialize variables</text>
+  <text x="750" y="597" text-anchor="middle" class="smallText">Attachment array, MaxFileSize = 0</text>
+
+  <path d="M750 195 L750 230" class="line"/>
+  <path d="M750 300 L750 335" class="line"/>
+  <path d="M750 405 L750 440" class="line"/>
+  <path d="M750 510 L750 545" class="line"/>
+
+  <rect x="385" y="660" width="730" height="330" rx="12" ry="12" class="group"/>
+  <text x="750" y="690" text-anchor="middle" class="nodeText">For each submitted attachment</text>
+
+  <rect x="470" y="720" width="250" height="62" class="box process"/>
+  <text x="595" y="746" text-anchor="middle" class="nodeText">Get file content</text>
+  <text x="595" y="768" text-anchor="middle" class="smallText">OneDrive for Business</text>
+
+  <rect x="780" y="720" width="250" height="62" class="box process"/>
+  <text x="905" y="746" text-anchor="middle" class="nodeText">Get file metadata</text>
+  <text x="905" y="768" text-anchor="middle" class="smallText">Read file size</text>
+
+  <rect x="470" y="830" width="250" height="62" class="box process"/>
+  <text x="595" y="856" text-anchor="middle" class="nodeText">Append attachment</text>
+  <text x="595" y="878" text-anchor="middle" class="smallText">Name + content</text>
+
+  <polygon points="905,815 1030,861 905,907 780,861" class="decision" stroke-width="2"/>
+  <text x="905" y="852" text-anchor="middle" class="nodeText">File size</text>
+  <text x="905" y="875" text-anchor="middle" class="smallText">&gt; MaxFileSize?</text>
+
+  <rect x="1090" y="830" width="210" height="62" class="box process"/>
+  <text x="1195" y="856" text-anchor="middle" class="nodeText">Set MaxFileSize</text>
+  <text x="1195" y="878" text-anchor="middle" class="smallText">to current file size</text>
+
+  <path d="M750 615 L750 660" class="line"/>
+  <path d="M720 751 L780 751" class="line"/>
+  <path d="M905 782 L905 815" class="line"/>
+  <path d="M780 861 L720 861" class="line"/>
+  <path d="M1030 861 L1090 861" class="line"/>
+  <text x="1052" y="848" class="label">Yes</text>
+  <text x="738" y="848" class="label">No</text>
+
+  <rect x="360" y="1030" width="330" height="72" class="box data"/>
+  <text x="525" y="1058" text-anchor="middle" class="nodeText">Add row to Excel tracker</text>
+  <text x="525" y="1082" text-anchor="middle" class="smallText">Approval Status = Pending</text>
+
+  <rect x="810" y="1030" width="330" height="72" class="box process"/>
+  <text x="975" y="1058" text-anchor="middle" class="nodeText">Add to JSON format</text>
+  <text x="975" y="1082" text-anchor="middle" class="smallText">Same request data</text>
+
+  <rect x="540" y="1140" width="420" height="64" class="box process"/>
+  <text x="750" y="1168" text-anchor="middle" class="nodeText">Initialize Links string</text>
+  <text x="750" y="1190" text-anchor="middle" class="smallText">Continue after both modules finish</text>
+
+  <polygon points="750,1245 940,1315 750,1385 560,1315" class="decision" stroke-width="2"/>
+  <text x="750" y="1304" text-anchor="middle" class="nodeText">MaxFileSize</text>
+  <text x="750" y="1328" text-anchor="middle" class="smallText">&lt; 5 MB?</text>
+
+  <path d="M750 990 L750 1010 L525 1010 L525 1030" class="line"/>
+  <path d="M750 990 L750 1010 L975 1010 L975 1030" class="line"/>
+  <path d="M525 1102 L525 1122 L750 1122 L750 1140" class="line"/>
+  <path d="M975 1102 L975 1122 L750 1122 L750 1140" class="line"/>
+  <path d="M750 1204 L750 1245" class="line"/>
+
+  <rect x="110" y="1435" width="430" height="72" class="box approval"/>
+  <text x="325" y="1463" text-anchor="middle" class="nodeText">Start and wait for approval</text>
+  <text x="325" y="1487" text-anchor="middle" class="smallText">Files attached from Attachment array</text>
+
+  <polygon points="325,1548 505,1614 325,1680 145,1614" class="decision" stroke-width="2"/>
+  <text x="325" y="1603" text-anchor="middle" class="nodeText">Outcome =</text>
+  <text x="325" y="1627" text-anchor="middle" class="smallText">Acknowledge?</text>
+
+  <rect x="40" y="1730" width="250" height="82" class="box data"/>
+  <text x="165" y="1758" text-anchor="middle" class="nodeText">Update Excel row</text>
+  <text x="165" y="1782" text-anchor="middle" class="smallText">Status, comments, reviewer,</text>
+  <text x="165" y="1804" text-anchor="middle" class="smallText">review time</text>
+
+  <rect x="360" y="1730" width="250" height="82" class="box data"/>
+  <text x="485" y="1758" text-anchor="middle" class="nodeText">Update Excel row</text>
+  <text x="485" y="1782" text-anchor="middle" class="smallText">Status, comments, reviewer,</text>
+  <text x="485" y="1804" text-anchor="middle" class="smallText">review time</text>
+
+  <rect x="40" y="1840" width="250" height="48" class="box notify"/>
+  <text x="165" y="1870" text-anchor="middle" class="nodeText">Send acknowledgement email</text>
+
+  <rect x="360" y="1840" width="250" height="48" class="box notify"/>
+  <text x="485" y="1870" text-anchor="middle" class="nodeText">Send rejection email</text>
+
+  <path d="M560 1315 L325 1315 L325 1435" class="line"/>
+  <text x="410" y="1298" class="label">Yes: send files directly</text>
+  <path d="M325 1507 L325 1548" class="line"/>
+  <path d="M145 1614 L165 1614 L165 1730" class="line"/>
+  <text x="166" y="1595" class="label">Yes</text>
+  <path d="M505 1614 L485 1614 L485 1730" class="line"/>
+  <text x="505" y="1595" class="label">No</text>
+  <path d="M165 1812 L165 1840" class="line"/>
+  <path d="M485 1812 L485 1840" class="line"/>
+
+  <rect x="955" y="1435" width="430" height="72" class="box process"/>
+  <text x="1170" y="1463" text-anchor="middle" class="nodeText">Build attachment Links string</text>
+  <text x="1170" y="1487" text-anchor="middle" class="smallText">For each attachment: [name](link)</text>
+
+  <rect x="955" y="1535" width="430" height="72" class="box approval"/>
+  <text x="1170" y="1563" text-anchor="middle" class="nodeText">Start and wait for approval</text>
+  <text x="1170" y="1587" text-anchor="middle" class="smallText">Links included in approval details</text>
+
+  <polygon points="1170,1648 1350,1714 1170,1780 990,1714" class="decision" stroke-width="2"/>
+  <text x="1170" y="1703" text-anchor="middle" class="nodeText">Outcome =</text>
+  <text x="1170" y="1727" text-anchor="middle" class="smallText">Acknowledge?</text>
+
+  <rect x="850" y="1830" width="260" height="62" class="box data"/>
+  <text x="980" y="1856" text-anchor="middle" class="nodeText">Update Excel + email</text>
+  <text x="980" y="1878" text-anchor="middle" class="smallText">Acknowledge branch</text>
+
+  <rect x="1230" y="1830" width="260" height="62" class="box data"/>
+  <text x="1360" y="1856" text-anchor="middle" class="nodeText">Update Excel + email</text>
+  <text x="1360" y="1878" text-anchor="middle" class="smallText">Reject branch</text>
+
+  <path d="M940 1315 L1170 1315 L1170 1435" class="line"/>
+  <text x="1035" y="1298" class="label">No: use links</text>
+  <path d="M1170 1507 L1170 1535" class="line"/>
+  <path d="M1170 1607 L1170 1648" class="line"/>
+  <path d="M990 1714 L980 1714 L980 1830" class="line"/>
+  <text x="990" y="1694" class="label">Yes</text>
+  <path d="M1350 1714 L1360 1714 L1360 1830" class="line"/>
+  <text x="1352" y="1694" class="label">No</text>
+
+  <rect x="40" y="112" width="310" height="150" rx="8" ry="8" fill="#ffffff" stroke="#cbd5e0" stroke-width="1.5"/>
+  <text x="60" y="143" class="nodeText">Connectors used</text>
+  <text x="60" y="173" class="smallText">Microsoft Forms</text>
+  <text x="60" y="198" class="smallText">OneDrive for Business</text>
+  <text x="60" y="223" class="smallText">Excel Online Business</text>
+  <text x="60" y="248" class="smallText">Approvals + Office 365 Outlook</text>
+</svg>
